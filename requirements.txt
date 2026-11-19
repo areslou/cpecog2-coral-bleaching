@@ -1,0 +1,9 @@
+ultralytics==8.4.211
+torch>=2.0
+imagehash
+kagglehub
+scikit-learn
+pandas
+numpy
+pillow
+matplotlib

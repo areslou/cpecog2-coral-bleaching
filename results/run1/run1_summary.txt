@@ -1,0 +1,1 @@
+Run 1 (Nov. 13, 2026): YOLOv8s-cls, ImageNet weights, default Ultralytics settings, 15 epochs max, imgsz 224, batch 32, seed 42. Data: 902 images after removing 21 duplicates; train/val/test = 631/135/136. Validation: accuracy 0.859, macro F1 0.859, bleached recall 0.847. best.pt 10.3 MB, CPU 28 ms/image. Training time 1.4 min.

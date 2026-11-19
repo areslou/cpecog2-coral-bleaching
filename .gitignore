@@ -1,0 +1,12 @@
+# Dataset images and generated folders (download with kagglehub instead)
+coral_data/
+datasets/
+*.zip
+# Model weights and Ultralytics run folders
+*.pt
+*.onnx
+runs/
+# Python / notebooks
+__pycache__/
+.ipynb_checkpoints/
+.venv/
