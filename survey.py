@@ -119,6 +119,28 @@ def load_site_map(csv_path):
     return {os.path.basename(str(p)).strip().lower(): str(st).strip() for p, st in zip(df[pc], df[sc]) if pd.notna(p) and pd.notna(st)}
 
 
+def items_from_csv(csv_path, folder):
+    """Photos listed in a sites CSV, found on disk: as written, or inside `folder`. Returns (items, missing names)."""
+    df = pd.read_csv(csv_path)
+    cols = {c.strip().lower(): c for c in df.columns}
+    pc = next((cols[c] for c in PHOTO_COLS if c in cols), None)
+    sc = cols.get("site")
+    if pc is None or sc is None:
+        raise ValueError(f"{os.path.basename(csv_path)} needs a 'photo' column and a 'site' column (found: {list(df.columns)})")
+    items, missing = [], []
+    for ph, st in zip(df[pc], df[sc]):
+        if pd.isna(ph):
+            continue
+        ph, st = str(ph).strip(), (str(st).strip() if pd.notna(st) else "Unassigned")
+        for cand in (ph, os.path.join(folder, ph), os.path.join(folder, os.path.basename(ph))):
+            if os.path.isfile(cand):
+                items.append((st, cand, os.path.basename(ph)))
+                break
+        else:
+            missing.append(ph)
+    return items, missing
+
+
 def assign_sites(items, site_map):
     """Replace each item's site with the one in site_map (by file name); photos not listed become 'Unassigned'."""
     return [(site_map.get(os.path.basename(path).lower(), "Unassigned"), path, name) for _, path, name in items]
