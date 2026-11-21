@@ -12,6 +12,7 @@ If anything goes wrong during a presentation, demo.py does the same job from the
 """
 import argparse
 import os
+import socket
 import tempfile
 
 os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")   # no usage pings; the demo must work offline
@@ -103,11 +104,23 @@ def build(weights, threshold):
     return ui
 
 
+def free_port(start, tries=50):
+    """First port from `start` that can be opened on this computer (skips busy and Windows-reserved ports)."""
+    for port in range(start, start + tries):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("127.0.0.1", port))
+                return port
+            except OSError:
+                continue
+    raise SystemExit(f"No free port between {start} and {start + tries - 1}. Close other app.py windows or pass --port 8500.")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Drag-and-drop GUI for the coral bleaching model.")
     ap.add_argument("--weights", help="model weights (default: the final model in results/)")
     ap.add_argument("--threshold", type=float, help="P(bleached) cutoff (default: the validation-selected cutoff saved with the model, else 0.5)")
-    ap.add_argument("--port", type=int, default=7860)
+    ap.add_argument("--port", type=int, default=7860, help="first port to try; the next free one is used if it is busy")
     ap.add_argument("--no-browser", action="store_true", help="do not open the browser automatically")
     args = ap.parse_args()
 
@@ -115,7 +128,10 @@ def main():
     if not weights or not os.path.exists(weights):
         raise SystemExit("No weights found. Put the final model in results/run3/ or results/run2/, or pass --weights path/to/model.pt")
     torch.set_num_threads(max(1, os.cpu_count() or 1))
-    build(weights, args.threshold).launch(server_name="127.0.0.1", server_port=args.port, inbrowser=not args.no_browser)
+    port = free_port(args.port)
+    if port != args.port:
+        print(f"Port {args.port} is busy (another app.py still running, or reserved by Windows), so using port {port}.")
+    build(weights, args.threshold).launch(server_name="127.0.0.1", server_port=port, inbrowser=not args.no_browser)
 
 
 if __name__ == "__main__":
