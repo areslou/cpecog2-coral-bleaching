@@ -28,6 +28,7 @@ notebooks/Group2_Coral_Run2.ipynb   data fixes, baselines, tuning sweep, Efficie
                                      test and external evaluation, size and latency, Grad-CAM
 demo.py                              demo: one image or a folder -> class, probability, Grad-CAM heatmap
 eval_external.py                     external BU + BHD evaluation of the final model
+download_results.py                  package and download the external evaluation CSV results
 data/splits.csv                      file name, label, split, perceptual hash for every image used (Run 1 split)
 results/run1/                        Run 1 metrics, confusion matrix, training curves, summary
 results/run2/                        Run 2 outputs (unzip run2_results.zip here)
@@ -44,6 +45,14 @@ requirements.txt                     library versions (exact ultralytics version
 4. Download `run2_results.zip` and unzip it into `results/run2/`. It holds every table and figure, `run2_summary.txt`, the final model `final_model_s42.pt` (or `final_model_s42_effnet_b0.pt`) and its model card (`.json`, class order and preprocessing).
 
 The held-out test set and the external BU + BHD set are evaluated once, in sections 7 and 8. Run the notebook end to end only when the tuning plan is final.
+
+After running `eval_external.py`, package and download the external result CSVs:
+
+```python
+!python download_results.py
+```
+
+In Colab, this asks the browser to download `coral_external_results.zip`. Outside Colab, it creates the ZIP in the repository folder.
 
 ### Demo (laptop CPU, no GPU or internet needed)
 
