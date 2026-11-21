@@ -20,7 +20,7 @@ os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")   # no usage pings; t
 import torch
 
 from demo import DEFAULT_WEIGHTS, default_threshold, load_model, overlay, pad_square, spec_note
-from survey import assign_sites, classify as survey_classify, load_site_map, report_text, review_list, summarize
+from survey import assign_sites, classify as survey_classify, items_from_csv, load_site_map, report_text, review_list, summarize
 
 
 def build(weights, threshold):
@@ -49,25 +49,32 @@ def build(weights, threshold):
                 "*Screening aid only: a trained reef monitor makes the final call.*"
         return text, overlay(im, cam, box, sq.size[0])
 
-    def survey(files, site):
+    def survey(files, site, folder):
         if not files:
-            return "Upload the photos from one survey or site, then press **Summarize survey**.", [], None
+            return "Upload a sites CSV (or photos), then press **Summarize survey**.", [], None
         site = (site or "").strip() or "Survey"
+        folder = (folder or "").strip() or "demo_photos"
         paths = [f if isinstance(f, str) else getattr(f, "name", str(f)) for f in files]
         csvs = [p for p in paths if p.lower().endswith(".csv")]
         items = [(site, p, os.path.basename(p)) for p in paths if not p.lower().endswith(".csv")]
-        if csvs:   # sites CSV uploaded with the photos: one upload, many sites
-            try:
+        missing = []
+        try:
+            if csvs and items:     # photos + CSV uploaded together: the CSV gives each photo's site
                 items = assign_sites(items, load_site_map(csvs[0]))
-            except ValueError as e:
-                return f"Sites CSV problem: {e}", [], None
-        if not items:
-            return "Upload photos too, not only the sites CSV.", [], None
+            elif csvs:             # only the CSV: read the listed photos from the photo folder on this computer
+                items, missing = items_from_csv(csvs[0], folder)
+                if not items:
+                    return (f"None of the photos listed in the CSV were found in **{os.path.abspath(folder)}**. "
+                            "Check the photo folder box."), [], None
+        except ValueError as e:
+            return f"Sites CSV problem: {e}", [], None
         photos, skipped = survey_classify(clf, items, thr)
         if photos.empty:
             return "None of the uploaded files is a readable image.", [], None
         sites, review = summarize(photos), review_list(photos)
         text = report_text(sites, review, thr, top=10, skipped=skipped)
+        if missing:
+            text += f"\n\n{len(missing)} photo(s) in the CSV were not found in {folder}: {', '.join(missing[:5])}{' ...' if len(missing) > 5 else ''}"
         flagged = review[review["prediction"] == "bleached"].head(8)
         gallery = [(r["path"], f"#{r['rank']}  P(bleached) {r['p_bleached']:.2f}") for _, r in flagged.iterrows()]
         out_dir = tempfile.mkdtemp(prefix="survey_")
@@ -94,20 +101,21 @@ def build(weights, threshold):
                 clear.add([inp, heat])
                 clear.click(lambda: "Drop a reef photo on the left, then press **Classify**.", outputs=verdict)
             with gr.Tab("Survey summary"):
-                gr.Markdown("Upload every photo from a survey. For **several sites at once**, add a sites CSV in the same upload "
-                            "(columns `photo` and `site`, one row per photo file name); otherwise all photos count as the one site named below. "
-                            "The tool reports the share of photos flagged as bleached per site (with a 95% confidence interval), "
-                            "how many are uncertain, and the order in which an expert should review them.")
+                gr.Markdown("**Fastest: upload only a sites CSV** (columns `photo` and `site`). The tool reads the listed photos from the "
+                            "photo folder on this computer and summarizes every site at once. You can also upload photos directly "
+                            "(with or without the CSV). It reports the share of photos flagged as bleached per site (with a 95% "
+                            "confidence interval), how many are uncertain, and the order in which an expert should review them.")
                 with gr.Row():
                     with gr.Column(scale=1):
-                        files = gr.File(file_count="multiple", file_types=["image", ".csv"], label="Survey photos (+ optional sites CSV)")
-                        site = gr.Textbox(label="Site name (used when no sites CSV is uploaded)", placeholder="e.g. Anilao, Site 3")
+                        files = gr.File(file_count="multiple", file_types=["image", ".csv"], label="Sites CSV, or survey photos (+ optional sites CSV)")
+                        folder = gr.Textbox(label="Photo folder (used when only a CSV is uploaded)", value="demo_photos")
+                        site = gr.Textbox(label="Site name (used when photos are uploaded without a CSV)", placeholder="e.g. Anilao, Site 3")
                         go = gr.Button("Summarize survey", variant="primary")
                         csv_out = gr.File(label="Review list (CSV)", interactive=False)
                     with gr.Column(scale=2):
                         report = gr.Markdown("Upload the photos from one survey or site, then press **Summarize survey**.")
                         gallery = gr.Gallery(label="Review first: photos most likely bleached", columns=4, height="auto")
-                go.click(survey, inputs=[files, site], outputs=[report, gallery, csv_out])
+                go.click(survey, inputs=[files, site, folder], outputs=[report, gallery, csv_out])
     return ui
 
 
