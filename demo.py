@@ -1,0 +1,256 @@
+"""Coral bleaching screening demo (CPECOG2 Group 2).
+
+Classifies one reef photo or every photo in a folder as healthy or bleached, prints the
+predicted class and its probability, and saves a Grad-CAM heatmap of the regions that drove
+each prediction. Runs on a laptop CPU with no internet once the weights file is local.
+
+Examples
+  python demo.py photo.jpg
+  python demo.py photos/ --out demo_output --csv predictions.csv
+  python demo.py photos/ --show                      # also open each heatmap in a window
+  python demo.py photos/ --benchmark                 # CPU latency, proposal protocol
+
+The weights default to results/run2/final_model_s42.pt (or the EfficientNet-B0 file) written by
+notebooks/Group2_Coral_Run2.ipynb. The model card saved next to the weights
+(<weights>.json) gives the architecture, class order and preprocessing; without it the type is
+detected from the file. The tool is a screening aid: a trained person makes the final call.
+"""
+import argparse
+import csv
+import glob
+import json
+import os
+import sys
+import time
+
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from PIL import Image
+
+IMG_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff")
+DEFAULT_WEIGHTS = ["results/run2/final_model_s42.pt", "results/run2/final_model_s42_effnet_b0.pt"]
+IMNET_MEAN, IMNET_STD = [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
+
+
+# ---------------------------------------------------------------- models
+class SmallCNN(nn.Module):
+    """Scratch baseline from the Run 2 notebook (3 convolutional blocks)."""
+
+    def __init__(self, n_classes=2):
+        super().__init__()
+
+        def block(cin, cout):
+            return nn.Sequential(nn.Conv2d(cin, cout, 3, padding=1, bias=False), nn.BatchNorm2d(cout), nn.ReLU(inplace=True),
+                                 nn.Conv2d(cout, cout, 3, padding=1, bias=False), nn.BatchNorm2d(cout), nn.ReLU(inplace=True),
+                                 nn.MaxPool2d(2))
+
+        self.features = nn.Sequential(block(3, 32), block(32, 64), block(64, 128))
+        self.head = nn.Sequential(nn.AdaptiveAvgPool2d(1), nn.Flatten(), nn.Dropout(0.3), nn.Linear(128, n_classes))
+
+    def forward(self, x):
+        return self.head(self.features(x))
+
+
+class Classifier:
+    """Wraps the network with its class order, input size, normalization and Grad-CAM layer."""
+
+    def __init__(self, net, cam_layer, classes, imgsz, mean, std, arch):
+        self.net, self.cam_layer, self.classes, self.imgsz, self.arch = net, cam_layer, list(classes), imgsz, arch
+        self.mean = torch.tensor(mean, dtype=torch.float32)[:, None, None]
+        self.std = torch.tensor(std, dtype=torch.float32)[:, None, None]
+        self.bleached = self.classes.index("bleached")
+        for p in self.net.parameters():
+            p.requires_grad_(True)
+
+    def to_input(self, square):
+        """Padded-square PIL image -> normalized (1, 3, imgsz, imgsz) tensor."""
+        arr = np.asarray(square.resize((self.imgsz, self.imgsz), Image.BILINEAR), dtype=np.float32) / 255
+        return ((torch.from_numpy(arr).permute(2, 0, 1) - self.mean) / self.std)[None]
+
+    def logits(self, x):
+        out = self.net(x)
+        return out[1] if isinstance(out, (tuple, list)) else out   # Ultralytics Classify returns (softmax, logits) in eval
+
+    def predict(self, x):
+        with torch.no_grad():
+            return self.logits(x).softmax(1)[0]
+
+    def gradcam(self, x):
+        """Probabilities and a Grad-CAM map (imgsz x imgsz, 0..1) for the predicted class."""
+        store = {}
+        hook = self.cam_layer.register_forward_hook(lambda m, i, o: store.__setitem__("a", o))
+        try:
+            logits = self.logits(x)
+        finally:
+            hook.remove()
+        cls = int(logits.argmax(1))
+        a = store["a"]
+        grad = torch.autograd.grad(logits[0, cls], a)[0]
+        cam = F.relu((grad.mean((2, 3), keepdim=True) * a).sum(1, keepdim=True))
+        cam = F.interpolate(cam, size=x.shape[-2:], mode="bilinear", align_corners=False)[0, 0].detach().numpy()
+        cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)
+        return logits.detach().softmax(1)[0], cam
+
+
+def load_model(weights):
+    card_path = os.path.splitext(weights)[0] + ".json"
+    card = json.load(open(card_path)) if os.path.exists(card_path) else {}
+    imgsz = int(card.get("imgsz", 224))
+    ckpt = torch.load(weights, map_location="cpu", weights_only=False)
+    arch = card.get("arch")
+    if arch is None:   # detect from the file
+        if isinstance(ckpt, dict) and "model" in ckpt and hasattr(ckpt.get("model"), "names"):
+            arch = "yolov8-cls"
+        elif isinstance(ckpt, dict) and "state_dict" in ckpt:
+            arch = "small_cnn"
+        elif isinstance(ckpt, dict) and any(k.startswith("features.") for k in ckpt) and "classifier.1.weight" in ckpt:
+            arch = "efficientnet_b0"
+        else:
+            sys.exit(f"Cannot tell which model {weights} holds. Put the model card ({card_path}) next to it.")
+
+    if arch.startswith("yolov8"):
+        from ultralytics import YOLO
+        net = YOLO(weights).model.float().eval()
+        names = net.names if isinstance(net.names, dict) else dict(enumerate(net.names))
+        classes = [names[i] for i in range(len(names))]
+        # Ultralytics classification input is RGB in [0, 1] with no mean/std normalization
+        return Classifier(net, net.model[-1].conv, classes, imgsz, [0, 0, 0], [1, 1, 1], arch)
+    if arch == "efficientnet_b0":
+        import torchvision
+        net = torchvision.models.efficientnet_b0(weights=None)
+        net.classifier[1] = nn.Linear(net.classifier[1].in_features, 2)
+        net.load_state_dict(ckpt["state_dict"] if "state_dict" in ckpt else ckpt)
+        return Classifier(net.eval(), net.features[-1], card.get("classes", ["healthy", "bleached"]), imgsz,
+                          card.get("mean", IMNET_MEAN), card.get("std", IMNET_STD), arch)
+    if arch == "small_cnn":
+        net = SmallCNN()
+        net.load_state_dict(ckpt["state_dict"])
+        return Classifier(net.eval(), net.features[-1], card.get("classes", ["healthy", "bleached"]), imgsz,
+                          [float(v) for v in ckpt["mean"]], [float(v) for v in ckpt["std"]], arch)
+    sys.exit(f"Unknown architecture in the model card: {arch}")
+
+
+# ---------------------------------------------------------------- images
+def pad_square(im):
+    """Pad to a square with black borders (the training preprocessing); return the square and the image box."""
+    s = max(im.size)
+    left, top = (s - im.size[0]) // 2, (s - im.size[1]) // 2
+    sq = Image.new("RGB", (s, s), (0, 0, 0))
+    sq.paste(im, (left, top))
+    return sq, (left, top, left + im.size[0], top + im.size[1])
+
+
+def overlay(im, cam_square, box, side):
+    """Original photo | photo with the Grad-CAM map in red, cropped back to the photo's own shape."""
+    cam = Image.fromarray(np.uint8(cam_square * 255)).resize((side, side), Image.BILINEAR).crop(box).resize(im.size, Image.BILINEAR)
+    a = np.asarray(cam, dtype=np.float32)[..., None] / 255 * 0.65
+    base = np.asarray(im, dtype=np.float32)
+    red = np.array([227, 74, 72], dtype=np.float32)
+    heat = (base * (1 - a) + red * a).clip(0, 255).astype(np.uint8)
+    out = Image.new("RGB", (im.size[0] * 2 + 8, im.size[1]), (255, 255, 255))
+    out.paste(im, (0, 0))
+    out.paste(Image.fromarray(heat), (im.size[0] + 8, 0))
+    return out
+
+
+def list_images(target):
+    if os.path.isdir(target):
+        files = sorted(p for p in glob.glob(os.path.join(target, "**", "*"), recursive=True) if p.lower().endswith(IMG_EXTS))
+    elif os.path.isfile(target):
+        files = [target]
+    else:
+        sys.exit(f"Not found: {target}")
+    if not files:
+        sys.exit(f"No images ({', '.join(IMG_EXTS)}) in {target}")
+    return files
+
+
+def benchmark(clf, files, n=100, warm=10):
+    """Proposal protocol: mean time per image over n images, batch size 1, after `warm` warm-up runs, on the CPU."""
+    torch.set_grad_enabled(False)
+    pool = (files * (1 + (n + warm) // len(files)))[: n + warm]
+
+    def one(p):
+        clf.predict(clf.to_input(pad_square(Image.open(p).convert("RGB"))[0]))
+
+    for p in pool[:warm]:
+        one(p)
+    t0 = time.perf_counter()
+    for p in pool[warm:]:
+        one(p)
+    return (time.perf_counter() - t0) / n * 1000
+
+
+# ---------------------------------------------------------------- main
+def main():
+    ap = argparse.ArgumentParser(description="Classify reef photos as healthy or bleached, with Grad-CAM heatmaps.")
+    ap.add_argument("target", help="an image file or a folder of images")
+    ap.add_argument("--weights", help="model weights (default: the Run 2 final model in results/run2/)")
+    ap.add_argument("--out", default="demo_output", help="folder for the heatmap images (default: demo_output)")
+    ap.add_argument("--csv", help="also write the predictions to this CSV file")
+    ap.add_argument("--no-heatmap", action="store_true", help="skip Grad-CAM (faster)")
+    ap.add_argument("--show", action="store_true", help="open each heatmap in a window")
+    ap.add_argument("--benchmark", action="store_true", help="measure CPU latency (100 images, batch 1, 10 warm-ups) and exit")
+    args = ap.parse_args()
+
+    weights = args.weights or next((w for w in DEFAULT_WEIGHTS if os.path.exists(w)), None)
+    if not weights or not os.path.exists(weights):
+        sys.exit("No weights found. Unzip run2_results.zip into results/run2/ or pass --weights path/to/model.pt")
+    torch.set_num_threads(max(1, os.cpu_count() or 1))
+    clf = load_model(weights)
+    files = list_images(args.target)
+    print(f"Model: {clf.arch} ({os.path.getsize(weights) / 1e6:.1f} MB) from {weights}; classes {clf.classes}")
+
+    if args.benchmark:
+        ms = benchmark(clf, files)
+        print(f"CPU latency: {ms:.1f} ms/image ({os.cpu_count()} logical cores, batch 1, 100 images after 10 warm-ups"
+              f"{'; images reused because the folder has fewer than 110' if len(files) < 110 else ''})")
+        return
+
+    if not args.no_heatmap:
+        os.makedirs(args.out, exist_ok=True)
+    rows = []
+    print(f"\n{'file':<40} {'prediction':<10} {'probability':>11} {'P(bleached)':>11}")
+    for p in files:
+        try:
+            im = Image.open(p).convert("RGB")
+        except Exception as e:
+            print(f"{os.path.basename(p):<40} unreadable ({e})")
+            continue
+        sq, box = pad_square(im)
+        x = clf.to_input(sq)
+        if args.no_heatmap:
+            probs, cam = clf.predict(x), None
+        else:
+            probs, cam = clf.gradcam(x)
+        k = int(probs.argmax())
+        row = dict(file=p, prediction=clf.classes[k], probability=round(float(probs[k]), 4),
+                   p_bleached=round(float(probs[clf.bleached]), 4), heatmap="")
+        if cam is not None:
+            fig = overlay(im, cam, box, sq.size[0])
+            row["heatmap"] = os.path.join(args.out, os.path.splitext(os.path.basename(p))[0] + "_gradcam.png")
+            fig.save(row["heatmap"])
+            if args.show:
+                import matplotlib.pyplot as plt
+                plt.figure(figsize=(10, 4.5))
+                plt.imshow(fig); plt.axis("off")
+                plt.title(f"{os.path.basename(p)}: {row['prediction']} ({row['probability']:.2f})  |  red = regions that drove the prediction")
+                plt.tight_layout(); plt.show()
+        rows.append(row)
+        print(f"{os.path.basename(p)[:40]:<40} {row['prediction']:<10} {row['probability']:>11.3f} {row['p_bleached']:>11.3f}")
+
+    n_b = sum(r["prediction"] == "bleached" for r in rows)
+    print(f"\n{len(rows)} image(s): {n_b} bleached, {len(rows) - n_b} healthy."
+          + (f" Heatmaps in {args.out}/" if not args.no_heatmap else ""))
+    if args.csv:
+        with open(args.csv, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=list(rows[0]) if rows else ["file"])
+            w.writeheader(); w.writerows(rows)
+        print("Predictions written to", args.csv)
+    print("Screening aid only: a trained reef monitor makes the final call.")
+
+
+if __name__ == "__main__":
+    main()
