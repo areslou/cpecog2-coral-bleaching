@@ -27,6 +27,7 @@ notebooks/Group2_Coral_Run1.ipynb   download, EDA, de-duplication, split, Run 1 
 notebooks/Group2_Coral_Run2.ipynb   data fixes, baselines, tuning sweep, EfficientNet-B0, final model (3 seeds),
                                      test and external evaluation, size and latency, Grad-CAM
 demo.py                              demo: one image or a folder -> class, probability, Grad-CAM heatmap
+eval_external.py                     external BU + BHD evaluation of the final model
 data/splits.csv                      file name, label, split, perceptual hash for every image used (Run 1 split)
 results/run1/                        Run 1 metrics, confusion matrix, training curves, summary
 results/run2/                        Run 2 outputs (unzip run2_results.zip here)
@@ -58,19 +59,50 @@ The demo uses the final model in `results/run2/` (or `--weights path/to/model.pt
 
 ## Results so far
 
-| Run | Model | Settings | Val accuracy | Val macro F1 | Bleached recall | Size | CPU latency |
-| :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- |
-| 1 (Nov. 13, 2026) | YOLOv8s-cls, ImageNet weights | Ultralytics defaults, 15 epochs, imgsz 224, batch 32, seed 42 | 0.859 | 0.859 | 0.847 | 10.3 MB | 28 ms |
+### Run 1 (Nov. 13, 2026): validation only
+
+| Model | Settings | Val accuracy | Val macro F1 | Bleached recall | Size | CPU latency |
+| :-- | :-- | :-- | :-- | :-- | :-- | :-- |
+| YOLOv8s-cls, ImageNet weights | Ultralytics defaults, 15 epochs, imgsz 224, batch 32, seed 42 | 0.859 | 0.859 | 0.847 | 10.3 MB | 28 ms |
 
 ![Run 1 training curves](results/run1/training_curves.png)
 
-Run 2 (`notebooks/Group2_Coral_Run2.ipynb`) is ready but has not been run yet; its results go here. The test set has not been used; it is evaluated once after tuning is final.
+### Run 2 (Nov. 21, 2026): baselines, tuning, final model, test
+
+Data: the 9 photos filed under both labels (18 files) and 1 near-duplicate across splits were removed. The final split is 629 train / 132 validation / 131 test.
+
+Validation macro F1 (seed 42) for each candidate. The final model is the one with the highest value.
+
+| Model / run | Val macro F1 | Val bleached recall |
+| :-- | :-- | :-- |
+| Majority class | 0.343 | |
+| Scratch CNN (3 blocks, 0.29M params) | 0.788 | 0.754 |
+| R2 YOLOv8s-cls, Run 1 settings | 0.818 | 0.826 |
+| R3 light augmentation | 0.833 | 0.739 |
+| **R4 dropout 0.3 (final)** | **0.864** | 0.797 |
+| R5 AdamW, lr0 5e-4, cosine | 0.841 | 0.797 |
+| R6 two-stage fine-tuning | 0.833 | 0.797 |
+| R7 R3 to R6 combined | 0.833 | 0.754 |
+| EfficientNet-B0 | 0.833 | 0.812 |
+
+Final model on the held-out test set (n = 131, evaluated once, mean ± std over seeds 42, 43, 44):
+
+| Metric | Target | Result | Status |
+| :-- | :-- | :-- | :-- |
+| Macro F1 | ≥ 0.90 | 0.839 ± 0.046 | not met |
+| Bleached recall | ≥ 0.90 | 0.801 ± 0.091 | not met |
+| Gain over the scratch CNN (test macro F1 0.771) | ≥ +10 points | +6.8 points | not met |
+| Accuracy / ROC AUC | | 0.840 ± 0.046 / 0.921 ± 0.007 | |
+| Model size | < 50 MB | 10.3 MB | met |
+| CPU latency (Colab CPU) | < 200 ms | 36 ms | met |
+
+By seed, test macro F1 was 0.793, 0.885 and 0.840. Seed 42 confusion matrix (rows true healthy/bleached, columns predicted): [[57, 7], [20, 47]]. Most errors are bleached photos predicted as healthy.
+
+External set: Run 2 section 8 evaluated only the BU images (n = 238: macro F1 0.768 ± 0.034, bleached recall 0.672 ± 0.081). The BHD files are named `*_hbd_*` in the Hugging Face zip, so the name check missed them. The notebook is fixed, and `eval_external.py` evaluates the final model on BU + BHD.
 
 ## Next steps
 
-Run 2 covers the Run 1 next steps (conflicting-label duplicates and near-duplicate leakage, scratch CNN and majority-class baselines, macro F1 checkpointing, tuning sweep, EfficientNet-B0). What remains:
-
-- Run `Group2_Coral_Run2.ipynb` on Colab and commit `results/run2/`.
+- Run `python eval_external.py --weights results/run2/final_model_s42.pt` on Colab for the BU + BHD external result, and commit `results/run2/`.
 - Measure CPU latency on a team laptop with `python demo.py <test images> --benchmark`.
 - Test the demo from a clean environment, and record the backup video.
 - Write the results, error analysis and Grad-CAM findings into the report and slides.

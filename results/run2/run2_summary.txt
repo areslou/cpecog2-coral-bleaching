@@ -1,0 +1,25 @@
+RUN 2 SUMMARY (Nov. 21, 2026)
+Data: 923 images; Run 1 split reused: True. Conflicting-label duplicate groups: 9 (18 files); copies removed from the split: {'test': 4, 'val': 3, 'train': 2}.
+Near-duplicates (pHash distance <= 5): 1 pairs; 1 same-label pairs across splits; 0 pairs with different labels; removed {'test': 1}.
+Final split (n, bleached, healthy): train 629 (334, 295); val 132 (69, 63); test 131 (67, 64)
+Majority-class check: val macro F1 0.343, test 0.338.
+Scratch CNN (0.29M params, best epoch 34 of 40): val macro F1 0.788, bleached recall 0.754; test macro F1 0.771, bleached recall 0.776; 1.2 MB, 62 ms/image CPU.
+Sweep (YOLOv8s-cls, seed 42, validation at the best-macro-F1 epoch):
+  R2_reference: macro F1 0.818, bleached recall 0.826, acc 0.818, epoch 6 (stage 1), 10 epochs run, 1.2 min [Run 1 settings]
+  R3_light_aug: macro F1 0.833, bleached recall 0.739, acc 0.833, epoch 4 (stage 1), 12 epochs run, 1.0 min [auto_augment=None, erasing=0.0, scale=0.1, fliplr=0.5, flipud=0.5, hsv_h=0.0, hsv_s=0.2, hsv_v=0.1]
+  R4_dropout0.3: macro F1 0.864, bleached recall 0.797, acc 0.864, epoch 14 (stage 1), 22 epochs run, 1.7 min [dropout=0.3]
+  R5_lr5e-4_cos: macro F1 0.841, bleached recall 0.797, acc 0.841, epoch 6 (stage 1), 11 epochs run, 0.9 min [optimizer=AdamW, lr0=0.0005, cos_lr=True]
+  R6_two_stage: macro F1 0.833, bleached recall 0.797, acc 0.833, epoch 8 (stage 1), 22 epochs run, 1.7 min [freeze=9, epochs=10, optimizer=AdamW, lr0=0.001 | freeze=7, epochs=20, optimizer=AdamW, lr0=0.0001, warmup_epochs=0]
+  R7_combined: macro F1 0.833, bleached recall 0.754, acc 0.833, epoch 7 (stage 2), 25 epochs run, 1.9 min [freeze=9, epochs=10, optimizer=AdamW, lr0=0.001, auto_augment=None, erasing=0.0, scale=0.1, fliplr=0.5, flipud=0.5, hsv_h=0.0, hsv_s=0.2, hsv_v=0.1, dropout=0.3 | freeze=7, epochs=20, optimizer=AdamW, lr0=0.0001, warmup_epochs=0, auto_augment=None, erasing=0.0, scale=0.1, fliplr=0.5, flipud=0.5, hsv_h=0.0, hsv_s=0.2, hsv_v=0.1, dropout=0.3]
+EfficientNet-B0: val macro F1 0.833, bleached recall 0.812, best epoch 8
+Final configuration: YOLOv8s-cls R4_dropout0.3 (dropout=0.3).
+Validation over seeds [42, 43, 44]: macro F1 0.848 ± 0.015, bleached recall 0.802 ± 0.008.
+Held-out test (n=131, evaluated once): macro F1 0.839 ± 0.046, bleached recall 0.801 ± 0.091, accuracy 0.840 ± 0.046, ROC AUC 0.921 ± 0.007.
+  By seed: 42: F1 0.793, recall 0.701; 43: F1 0.885, recall 0.881; 44: F1 0.840, recall 0.821
+  Seed 42 confusion matrix (rows true, cols predicted; healthy, bleached): [[57, 7], [20, 47]]; 27 errors.
+  Gain over the scratch CNN on test: +6.8 macro F1 points.
+External BU + BHD (n=238: 122 bleached, 116 healthy; removed 7 matches with the primary set and 13 repeats; evaluated once): macro F1 0.768 ± 0.034, bleached recall 0.672 ± 0.081, accuracy 0.770 ± 0.033.
+  By source (mean ± std over seeds): BU (n=238) F1 0.768 ± 0.034, recall 0.672 ± 0.081; seed 42 confusion matrix [[102, 14], [32, 90]].
+Size 10.3 MB; CPU latency 36 ms/image (Colab CPU, batch 1, 100 test images after 10 warm-ups).
+Targets on test: macro F1 >= 0.90 NOT met; bleached recall >= 0.90 NOT met; size < 50 MB met; latency < 200 ms met; +10 points over the baseline NOT met.
+Environment: GPU Tesla T4, ultralytics 8.4.211, torch 2.14.1+cu130. Total time 16.4 min.
