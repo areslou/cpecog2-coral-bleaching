@@ -23,19 +23,51 @@ import os
 import sys
 import time
 
+# Ultralytics tries to pip-install missing optional packages (e.g. pi-heif) when it meets an unreadable
+# file. The demo must run offline and never install anything mid-demo, so auto-install is turned off.
+os.environ.setdefault("YOLO_AUTOINSTALL", "false")
+os.environ.setdefault("YOLO_OFFLINE", "true")
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 IMG_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff")
+MIN_SIDE = 100      # px; smaller images are outside the supported conditions (proposal, system specifications)
+MIN_DETAIL = 8.0    # std of grayscale pixel values; below this the image is almost uniform (blank, black, or solid colour)
+
+
+def spec_note(im):
+    """Return a warning when the photo is outside the supported conditions; the prediction is still shown."""
+    w, h = im.size
+    if min(w, h) < MIN_SIDE:
+        return f"outside specs: only {w}x{h} px"
+    if float(np.asarray(im.convert("L"), dtype=np.float32).std()) < MIN_DETAIL:
+        return "outside specs: almost no detail (blank or solid image)"
+    return ""
 DEFAULT_WEIGHTS = [
     "results/run3/final_model_s42.pt",
     "results/run3/final_model_s42_effnet_b0.pt",
     "results/run2/final_model_s42.pt",
     "results/run2/final_model_s42_effnet_b0.pt",
 ]
+
+
+def default_threshold(weights):
+    """Decision cutoff on P(bleached) for these weights.
+
+    Run 3 selected its cutoff on validation only and saved it as selected_threshold.csv next to its model.
+    The cutoff belongs to the model it was selected for, so it is only used when that file sits in the same
+    folder as the weights; any other model uses 0.5 (the plain highest-probability class)."""
+    path = os.path.join(os.path.dirname(os.path.abspath(weights)), "selected_threshold.csv")
+    if os.path.exists(path):
+        with open(path, newline="") as f:
+            row = next(csv.DictReader(f), None)
+        if row and row.get("threshold"):
+            return float(row["threshold"]), os.path.relpath(path)
+    return 0.5, "default"
 IMNET_MEAN, IMNET_STD = [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
 
 
@@ -82,7 +114,11 @@ class Classifier:
         with torch.no_grad():
             return self.logits(x).softmax(1)[0]
 
-    def gradcam(self, x):
+    def decide(self, probs, threshold=0.5):
+        """Predicted class index: bleached when P(bleached) >= threshold, otherwise the other class."""
+        return self.bleached if float(probs[self.bleached]) >= threshold else 1 - self.bleached
+
+    def gradcam(self, x, threshold=0.5):
         """Probabilities and a Grad-CAM map (imgsz x imgsz, 0..1) for the predicted class."""
         store = {}
         hook = self.cam_layer.register_forward_hook(lambda m, i, o: store.__setitem__("a", o))
@@ -90,7 +126,7 @@ class Classifier:
             logits = self.logits(x)
         finally:
             hook.remove()
-        cls = int(logits.argmax(1))
+        cls = self.decide(logits.detach().softmax(1)[0], threshold)
         a = store["a"]
         grad = torch.autograd.grad(logits[0, cls], a)[0]
         cam = F.relu((grad.mean((2, 3), keepdim=True) * a).sum(1, keepdim=True))
@@ -175,6 +211,18 @@ def list_images(target):
 def benchmark(clf, files, n=100, warm=10):
     """Proposal protocol: mean time per image over n images, batch size 1, after `warm` warm-up runs, on the CPU."""
     torch.set_grad_enabled(False)
+
+    def readable(p):
+        try:
+            with Image.open(p) as im:
+                im.verify()
+            return True
+        except Exception:
+            return False
+
+    files = [p for p in files if readable(p)]
+    if not files:
+        sys.exit("No readable images to benchmark.")
     pool = (files * (1 + (n + warm) // len(files)))[: n + warm]
 
     def one(p):
@@ -198,6 +246,7 @@ def main():
     ap.add_argument("--no-heatmap", action="store_true", help="skip Grad-CAM (faster)")
     ap.add_argument("--show", action="store_true", help="open each heatmap in a window")
     ap.add_argument("--benchmark", action="store_true", help="measure CPU latency (100 images, batch 1, 10 warm-ups) and exit")
+    ap.add_argument("--threshold", type=float, help="P(bleached) cutoff (default: the validation-selected cutoff saved with the model, else 0.5)")
     args = ap.parse_args()
 
     weights = args.weights or next((w for w in DEFAULT_WEIGHTS if os.path.exists(w)), None)
@@ -205,8 +254,13 @@ def main():
         sys.exit("No weights found. Unzip run2_results.zip into results/run2/ or pass --weights path/to/model.pt")
     torch.set_num_threads(max(1, os.cpu_count() or 1))
     clf = load_model(weights)
-    files = list_images(args.target)
+    out_dir = os.path.abspath(args.out) + os.sep
+    files = [p for p in list_images(args.target) if not os.path.abspath(p).startswith(out_dir)]   # skip earlier heatmaps
+    if not files:
+        sys.exit(f"No images to classify in {args.target}")
+    threshold, thr_src = (args.threshold, "--threshold") if args.threshold is not None else default_threshold(weights)
     print(f"Model: {clf.arch} ({os.path.getsize(weights) / 1e6:.1f} MB) from {weights}; classes {clf.classes}")
+    print(f"Decision rule: bleached when P(bleached) >= {threshold:.3f} ({thr_src})")
 
     if args.benchmark:
         ms = benchmark(clf, files)
@@ -221,18 +275,19 @@ def main():
     for p in files:
         try:
             im = Image.open(p).convert("RGB")
-        except Exception as e:
-            print(f"{os.path.basename(p):<40} unreadable ({e})")
+        except (UnidentifiedImageError, OSError, ImportError, ValueError):
+            print(f"{os.path.basename(p)[:40]:<40} skipped: not a readable image file")
             continue
+        note = spec_note(im)
         sq, box = pad_square(im)
         x = clf.to_input(sq)
         if args.no_heatmap:
             probs, cam = clf.predict(x), None
         else:
-            probs, cam = clf.gradcam(x)
-        k = int(probs.argmax())
+            probs, cam = clf.gradcam(x, threshold)
+        k = clf.decide(probs, threshold)
         row = dict(file=p, prediction=clf.classes[k], probability=round(float(probs[k]), 4),
-                   p_bleached=round(float(probs[clf.bleached]), 4), heatmap="")
+                   p_bleached=round(float(probs[clf.bleached]), 4), heatmap="", note=note)
         if cam is not None:
             fig = overlay(im, cam, box, sq.size[0])
             row["heatmap"] = os.path.join(args.out, os.path.splitext(os.path.basename(p))[0] + "_gradcam.png")
@@ -244,7 +299,8 @@ def main():
                 plt.title(f"{os.path.basename(p)}: {row['prediction']} ({row['probability']:.2f})  |  red = regions that drove the prediction")
                 plt.tight_layout(); plt.show()
         rows.append(row)
-        print(f"{os.path.basename(p)[:40]:<40} {row['prediction']:<10} {row['probability']:>11.3f} {row['p_bleached']:>11.3f}")
+        print(f"{os.path.basename(p)[:40]:<40} {row['prediction']:<10} {row['probability']:>11.3f} {row['p_bleached']:>11.3f}"
+              + (f"   ! {note}" if note else ""))
 
     n_b = sum(r["prediction"] == "bleached" for r in rows)
     print(f"\n{len(rows)} image(s): {n_b} bleached, {len(rows) - n_b} healthy."
