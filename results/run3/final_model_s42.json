@@ -1,0 +1,25 @@
+{
+  "arch": "yolov8s-cls",
+  "configuration": "YOLOv8s-cls R4_dropout0.3 (dropout=0.3)",
+  "seed": 42,
+  "imgsz": 224,
+  "preprocessing": "pad to square with black borders, resize to imgsz (bilinear), RGB scaled to [0, 1], then (x - mean) / std",
+  "classes": [
+    "bleached",
+    "healthy"
+  ],
+  "mean": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "std": [
+    1.0,
+    1.0,
+    1.0
+  ],
+  "val_macro_f1": 0.8635110294117647,
+  "val_bleached_recall": 0.7971014492753623,
+  "ultralytics": "8.4.211",
+  "torch": "2.14.1+cu130"
+}
