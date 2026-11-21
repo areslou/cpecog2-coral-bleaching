@@ -29,6 +29,7 @@ notebooks/Group2_Coral_Run2.ipynb   data fixes, baselines, tuning sweep, Efficie
 notebooks/Group2_Coral_Run3.ipynb   leakage-safe validation-threshold experiment; outputs are kept separate
 notebooks/Group2_Coral_Run4.ipynb   batch size, weight decay and model scale (validation only)
 app.py                               GUI: drag in a photo -> class, P(bleached), Grad-CAM heatmap (runs locally)
+get_demo_photos.py                   copy the held-out test photos (never trained on) into demo_photos/ for the demo
 demo.py                              demo: one image or a folder -> class, probability, Grad-CAM heatmap
 eval_external.py                     external BU + BHD evaluation of the final model
 data/splits.csv                      file name, label, split, perceptual hash for every image used (Run 1 split)
@@ -70,6 +71,7 @@ Pass `--threshold 0.xxx` to `eval_external.py` after selecting the cutoff. The t
 
 ```
 pip install -r requirements.txt
+python get_demo_photos.py      # one time: copies the 131 held-out test photos into demo_photos/
 python app.py
 ```
 
