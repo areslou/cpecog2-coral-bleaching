@@ -30,7 +30,12 @@ import torch.nn.functional as F
 from PIL import Image
 
 IMG_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff")
-DEFAULT_WEIGHTS = ["results/run2/final_model_s42.pt", "results/run2/final_model_s42_effnet_b0.pt"]
+DEFAULT_WEIGHTS = [
+    "results/run3/final_model_s42.pt",
+    "results/run3/final_model_s42_effnet_b0.pt",
+    "results/run2/final_model_s42.pt",
+    "results/run2/final_model_s42_effnet_b0.pt",
+]
 IMNET_MEAN, IMNET_STD = [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
 
 

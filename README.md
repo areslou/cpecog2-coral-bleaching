@@ -26,6 +26,7 @@ Images are not stored in this repository. The notebook downloads them with `kagg
 notebooks/Group2_Coral_Run1.ipynb   download, EDA, de-duplication, split, Run 1 training and evaluation
 notebooks/Group2_Coral_Run2.ipynb   data fixes, baselines, tuning sweep, EfficientNet-B0, final model (3 seeds),
                                      test and external evaluation, size and latency, Grad-CAM
+notebooks/Group2_Coral_Run3.ipynb   leakage-safe validation-threshold experiment; outputs are kept separate
 demo.py                              demo: one image or a folder -> class, probability, Grad-CAM heatmap
 eval_external.py                     external BU + BHD evaluation of the final model
 download_results.py                  package and download the external evaluation CSV results
@@ -53,6 +54,18 @@ After running `eval_external.py`, package and download the external result CSVs:
 ```
 
 In Colab, this asks the browser to download `coral_external_results.zip`. Outside Colab, it creates the ZIP in the repository folder.
+
+### Leakage-safe threshold tuning
+
+Run 2 now separates threshold selection from final evaluation:
+
+1. The operating cutoff is selected only from seed-42 validation probabilities.
+2. The cutoff search prefers the highest validation macro F1 among cutoffs that achieve at least 0.90 bleached recall.
+3. The selected cutoff is saved in `results/run2/selected_threshold.csv`.
+4. The held-out test set is evaluated once with that fixed cutoff.
+5. The external BU/BHD set is evaluated once with the same validation-selected cutoff.
+
+Pass `--threshold 0.xxx` to `eval_external.py` after selecting the cutoff. The test and external sets must not be used to change the cutoff.
 
 ### Demo (laptop CPU, no GPU or internet needed)
 

@@ -60,8 +60,8 @@ def parse(name):
     return lab, src
 
 
-def metrics(y, p):
-    yp = (p >= 0.5).astype(int)
+def metrics(y, p, threshold=0.5):
+    yp = (p >= threshold).astype(int)
     return dict(n=len(y), macro_f1=f1_score(y, yp, average="macro"), bleached_recall=recall_score(y, yp, zero_division=0),
                 bleached_precision=precision_score(y, yp, zero_division=0), healthy_recall=recall_score(y, yp, pos_label=0, zero_division=0),
                 accuracy=accuracy_score(y, yp), roc_auc=roc_auc_score(y, p) if len(np.unique(y)) > 1 else float("nan"),
@@ -70,9 +70,10 @@ def metrics(y, p):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--weights", nargs="+", default=["results/run2/final_model_s42.pt"])
+    ap.add_argument("--weights", nargs="+", default=["results/run3/final_model_s42.pt"])
     ap.add_argument("--work", default="/content" if os.path.isdir("/content") else ".", help="folder for the downloaded images")
-    ap.add_argument("--out", default="results/run2", help="folder for the result files")
+    ap.add_argument("--out", default="results/run3", help="folder for the result files")
+    ap.add_argument("--threshold", type=float, default=0.5, help="decision cutoff for P(bleached); selected on validation only")
     args = ap.parse_args()
 
     from huggingface_hub import hf_hub_download
@@ -120,7 +121,7 @@ def main():
         p = np.array(p)
         for name, mask in (("BU + BHD", np.ones(len(y), bool)), ("BU", src == "BU"), ("BHD", src == "BHD")):
             if mask.sum():
-                rows.append(dict(weights=os.path.basename(w), set=name, **metrics(y[mask], p[mask])))
+                rows.append(dict(weights=os.path.basename(w), set=name, **metrics(y[mask], p[mask], args.threshold)))
         ext[f"p_bleached_{os.path.splitext(os.path.basename(w))[0]}"] = p.round(4)
 
     res = pd.DataFrame(rows)
@@ -128,7 +129,7 @@ def main():
     res.to_csv(os.path.join(args.out, "external_bu_bhd.csv"), index=False)
     ext.drop(columns=["path", "sq"]).to_csv(os.path.join(args.out, "external_bu_bhd_predictions.csv"), index=False)
     cols = ["n", "macro_f1", "bleached_recall", "bleached_precision", "healthy_recall", "accuracy", "roc_auc"]
-    print("\nEXTERNAL TEST (BU + BHD), evaluated once with the Run 2 final model")
+    print(f"\nEXTERNAL TEST (BU + BHD), evaluated once with the Run 2 final model (P(bleached) cutoff={args.threshold:.3f})")
     for r in rows:
         print(f"  {r['weights']} | {r['set']:<8} n={r['n']:<4} macro F1 {r['macro_f1']:.3f}, bleached recall {r['bleached_recall']:.3f}, "
               f"accuracy {r['accuracy']:.3f}, ROC AUC {r['roc_auc']:.3f}, confusion matrix (rows true, cols predicted; healthy, bleached) {r['cm']}")

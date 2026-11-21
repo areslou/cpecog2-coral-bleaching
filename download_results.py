@@ -14,8 +14,8 @@ from pathlib import Path
 
 
 DEFAULT_FILES = [
-    "results/run2/external_bu_bhd.csv",
-    "results/run2/external_bu_bhd_predictions.csv",
+    "results/run3/external_bu_bhd.csv",
+    "results/run3/external_bu_bhd_predictions.csv",
 ]
 
 
@@ -82,12 +82,19 @@ def main() -> None:
     print(f"Created {out}")
 
     try:
+        import google.colab  # noqa: F401
         from google.colab import files
     except ImportError:
         print("Local run: download or copy the ZIP manually.")
+        print(f"ZIP location: {out}")
         return
 
-    files.download(str(out))
+    try:
+        files.download(str(out))
+    except Exception as error:
+        print("Automatic browser download was unavailable.")
+        print(f"ZIP location: {out}")
+        print(f"Reason: {error}")
 
 
 if __name__ == "__main__":
