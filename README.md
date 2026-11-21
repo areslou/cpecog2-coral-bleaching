@@ -98,6 +98,17 @@ Final model on the held-out test set (n = 131, evaluated once, mean ± std over 
 
 By seed, test macro F1 was 0.793, 0.885 and 0.840. Seed 42 confusion matrix (rows true healthy/bleached, columns predicted): [[57, 7], [20, 47]]. Most errors are bleached photos predicted as healthy.
 
+![Run 2 sweep](results/run2/sweep_macro_f1.png)
+
+Error analysis (seed 42, [`test_errors.csv`](results/run2/test_errors.csv), [`gradcam_test.png`](results/run2/gradcam_test.png)):
+
+- 20 of the 27 test errors are bleached photos predicted healthy. 12 of the 20 have P(bleached) below 0.35, so a slightly lower cutoff would recover only a few of them.
+- Grad-CAM on correct bleached predictions falls on the pale coral, not on the water or fish.
+- Missed bleached photos are mostly wide reef scenes where the bleached coral is a small part of the frame (partial bleaching), or naturally pale coral such as a brain coral. In one, the heatmap sits on dark coral next to a clearly white colony.
+- Some heatmaps spread faintly onto the black padding bars.
+
+![Grad-CAM on test images](results/run2/gradcam_test.png)
+
 External set: Run 2 section 8 evaluated only the BU images (n = 238: macro F1 0.768 ± 0.034, bleached recall 0.672 ± 0.081). The BHD files are named `*_hbd_*` in the Hugging Face zip, so the name check missed them. The notebook is fixed, and `eval_external.py` evaluates the final model on BU + BHD.
 
 ## Next steps
