@@ -30,6 +30,7 @@ notebooks/Group2_Coral_Run3.ipynb   leakage-safe validation-threshold experiment
 notebooks/Group2_Coral_Run4.ipynb   batch size, weight decay and model scale (validation only)
 app.py                               GUI: drag in a photo -> class, P(bleached), Grad-CAM heatmap (runs locally)
 get_demo_photos.py                   copy the held-out test photos (never trained on) into demo_photos/ for the demo
+survey.py                            survey summary: folder of photos -> share flagged bleached per site (95% CI), review-first list
 demo.py                              demo: one image or a folder -> class, probability, Grad-CAM heatmap
 eval_external.py                     external BU + BHD evaluation of the final model
 data/splits.csv                      file name, label, split, perceptual hash for every image used (Run 1 split)
@@ -76,6 +77,21 @@ python app.py
 ```
 
 The browser opens at http://127.0.0.1:7860. Drop in a reef photo to see healthy or bleached, P(bleached), the decision rule, and the Grad-CAM heatmap. Everything runs on the laptop; nothing is uploaded. `demo.py` below does the same from the terminal and is the backup if the GUI has a problem.
+
+### Survey summary: from photo checks to a site-level indicator
+
+`demo.py` answers "is this photo bleached?". A reef monitor needs "which site needs attention, and which photos should an expert check first?". `survey.py` (and the **Survey summary** tab in `app.py`) classifies every photo from a survey and reports, per site:
+
+- the share of photos flagged as bleached, with a 95% Wilson confidence interval so a site with few photos is not over-read;
+- how many photos are uncertain (P(bleached) within 0.15 of the cutoff), which an expert should check;
+- a review list of all photos, most likely bleached first.
+
+```
+python survey.py demo_photos                     # one folder = one site
+python survey.py surveys/2026-11 --top 15        # each subfolder (SiteA/, SiteB/, ...) is one site
+```
+
+It writes `site_summary.csv`, `review_list.csv` and `report.md` to `survey_report/`. The rate is the share of photos flagged, not the share of coral cover bleached: it is a screening indicator for deciding where to send experts, and a trained reef monitor makes the final call.
 
 ### Demo (laptop CPU, no GPU or internet needed)
 
