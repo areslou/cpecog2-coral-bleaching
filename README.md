@@ -27,13 +27,15 @@ notebooks/Group2_Coral_Run1.ipynb   download, EDA, de-duplication, split, Run 1 
 notebooks/Group2_Coral_Run2.ipynb   data fixes, baselines, tuning sweep, EfficientNet-B0, final model (3 seeds),
                                      test and external evaluation, size and latency, Grad-CAM
 notebooks/Group2_Coral_Run3.ipynb   leakage-safe validation-threshold experiment; outputs are kept separate
+notebooks/Group2_Coral_Run4.ipynb   batch size, weight decay and model scale (validation only)
+app.py                               GUI: drag in a photo -> class, P(bleached), Grad-CAM heatmap (runs locally)
 demo.py                              demo: one image or a folder -> class, probability, Grad-CAM heatmap
 eval_external.py                     external BU + BHD evaluation of the final model
-download_results.py                  package and download the external evaluation CSV results
 data/splits.csv                      file name, label, split, perceptual hash for every image used (Run 1 split)
 results/run1/                        Run 1 metrics, confusion matrix, training curves, summary
 results/run2/                        Run 2 outputs (unzip run2_results.zip here)
 results/run3/                        Run 3 threshold-tuning outputs and final model
+results/run4/                        Run 4 outputs (unzip run4_results.zip here)
 requirements.txt                     library versions (exact ultralytics version)
 ```
 
@@ -48,14 +50,6 @@ requirements.txt                     library versions (exact ultralytics version
 
 The held-out test set and the external BU + BHD set are evaluated once, in sections 7 and 8. Run the notebook end to end only when the tuning plan is final.
 
-After running `eval_external.py`, package and download the external result CSVs:
-
-```python
-!python download_results.py
-```
-
-In Colab, this asks the browser to download `coral_external_results.zip`. Outside Colab, it creates the ZIP in the repository folder.
-
 ### Leakage-safe threshold tuning
 
 Run 3 separates threshold selection from final evaluation:
@@ -68,17 +62,31 @@ Run 3 separates threshold selection from final evaluation:
 
 Pass `--threshold 0.xxx` to `eval_external.py` after selecting the cutoff. The test and external sets must not be used to change the cutoff.
 
-### Demo (laptop CPU, no GPU or internet needed)
+### Remaining hyperparameters (Run 4)
+
+`notebooks/Group2_Coral_Run4.ipynb` tests batch size 16, weight decay 0 and 0.001, and YOLOv8n-cls, one at a time from the final configuration (R4, dropout 0.3), on the validation set only (about 15 minutes on a T4). The test and external sets are not used, so the final model does not change. Unzip `run4_results.zip` into `results/run4/`.
+
+### GUI (laptop CPU, no GPU or internet needed)
 
 ```
 pip install -r requirements.txt
+python app.py
+```
+
+The browser opens at http://127.0.0.1:7860. Drop in a reef photo to see healthy or bleached, P(bleached), the decision rule, and the Grad-CAM heatmap. Everything runs on the laptop; nothing is uploaded. `demo.py` below does the same from the terminal and is the backup if the GUI has a problem.
+
+### Demo (laptop CPU, no GPU or internet needed)
+
+```
 python demo.py path/to/photo.jpg                     # one image
 python demo.py path/to/folder --csv predictions.csv  # every image in a folder
 python demo.py path/to/folder --show                 # also open each heatmap in a window
 python demo.py path/to/folder --benchmark            # CPU latency: 100 images, batch 1, after 10 warm-ups
 ```
 
-The demo uses the final model in `results/run2/` (or `--weights path/to/model.pt`). For each image it prints the predicted class, its probability and P(bleached), and saves the photo next to a Grad-CAM overlay (red = regions that drove the prediction) in `demo_output/`. `--benchmark` is the latency test the success criteria ask for on a team laptop CPU. The model is a screening aid; a trained reef monitor makes the final call.
+The demo uses the newest final model it finds (`results/run3/`, then `results/run2/`), or `--weights path/to/model.pt`. A photo is called bleached when P(bleached) reaches the cutoff: the validation-selected cutoff when `selected_threshold.csv` sits next to the model (Run 3), otherwise 0.5; `--threshold` overrides it. For each image it prints the predicted class, its probability and P(bleached), and saves the photo next to a Grad-CAM overlay (red = regions that drove the prediction) in `demo_output/`. `--benchmark` is the latency test the success criteria ask for on a team laptop CPU. The model is a screening aid; a trained reef monitor makes the final call.
+
+Supported input: JPG, PNG, BMP, WEBP or TIFF photos of coral, at least 100 px per side. Files that are not readable images are skipped with a message. Images smaller than 100 px or with almost no detail (blank or solid colour) are still classified but flagged `outside specs`, because the model was only trained on reef photos. The demo and the GUI never install packages and need no internet once `requirements.txt` is installed.
 
 ## Results so far
 
