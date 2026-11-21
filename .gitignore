@@ -15,3 +15,5 @@ __pycache__/
 demo_photos/
 demo_output/
 survey_report/
+demo_survey/
+test_survey/

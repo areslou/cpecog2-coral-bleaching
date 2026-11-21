@@ -6,10 +6,14 @@ dataset is downloaded with kagglehub (internet needed once); each photo is saved
 
   python get_demo_photos.py                      # test photos -> demo_photos/
   python get_demo_photos.py --source path/to/dataset/folder   # skip the download
+  python get_demo_photos.py --sites              # also build demo_survey/ with 3 example sites for survey.py
+
+The example sites are simulated: test photos mixed in known proportions, so the survey ranking can be checked.
 """
 import argparse
 import glob
 import os
+import random
 import shutil
 
 import pandas as pd
@@ -23,7 +27,14 @@ def main():
     ap.add_argument("--source", help="folder with the Kaggle images (default: download with kagglehub)")
     ap.add_argument("--out", default="demo_photos")
     ap.add_argument("--split", default="test", choices=["train", "val", "test"])
+    ap.add_argument("--sites", action="store_true", help="also build demo_survey/ with 3 simulated sites (known bleached share)")
     args = ap.parse_args()
+
+    existing = glob.glob(os.path.join(args.out, "*_*.*"))
+    if args.sites and args.source is None and len(existing) >= 100:
+        print(f"Using the {len(existing)} photos already in {args.out}")
+        build_sites(args.out)
+        return
 
     split_file = next((f for f in SPLIT_FILES if os.path.exists(f)), None)
     if split_file is None:
@@ -50,6 +61,32 @@ def main():
             n[lab] += 1
     print(f"Copied {sum(n.values())} {args.split} photos ({n['bleached']} bleached, {n['healthy']} healthy) "
           f"from {split_file} into {os.path.abspath(args.out)}")
+    if args.sites:
+        build_sites(args.out)
+
+
+SITES = [("Site_A", 25, 5), ("Site_B", 12, 18), ("Site_C", 3, 27)]   # (name, bleached photos, healthy photos)
+
+
+def build_sites(photo_dir, survey_dir="demo_survey", seed=42):
+    """Simulated survey: three site folders mixed from the test photos in known proportions."""
+    files = sorted(glob.glob(os.path.join(photo_dir, "*")))
+    pools = {lab: [f for f in files if os.path.basename(f).startswith(lab + "_")] for lab in ("bleached", "healthy")}
+    rng = random.Random(seed)
+    for v in pools.values():
+        rng.shuffle(v)
+    need = {"bleached": sum(b for _, b, _ in SITES), "healthy": sum(h for _, _, h in SITES)}
+    if any(len(pools[k]) < need[k] for k in need):
+        raise SystemExit(f"Not enough photos in {photo_dir} to build the sites (need {need}).")
+    shutil.rmtree(survey_dir, ignore_errors=True)
+    print(f"Simulated survey in {os.path.abspath(survey_dir)} (true bleached share per site):")
+    for name, nb, nh in SITES:
+        d = os.path.join(survey_dir, name); os.makedirs(d)
+        for f in pools["bleached"][:nb] + pools["healthy"][:nh]:
+            shutil.copy(f, d)
+        pools["bleached"], pools["healthy"] = pools["bleached"][nb:], pools["healthy"][nh:]
+        print(f"  {name}: {nb + nh} photos, {nb} truly bleached ({nb / (nb + nh):.0%})")
+    print(f"Next: python survey.py {survey_dir}")
 
 
 if __name__ == "__main__":
