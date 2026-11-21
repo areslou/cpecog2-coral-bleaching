@@ -89,7 +89,10 @@ The browser opens at http://127.0.0.1:7860. Drop in a reef photo to see healthy 
 ```
 python survey.py demo_photos                     # one folder = one site
 python survey.py surveys/2026-11 --top 15        # each subfolder (SiteA/, SiteB/, ...) is one site
+python survey.py photos --sites-csv sites.csv    # all photos in one folder; sites.csv says which site each photo is from
 ```
+
+A sites CSV has two columns, `photo` (file name) and `site`, one row per photo; photos it does not list are reported as `Unassigned`. In the GUI, upload the photos and the sites CSV together in one upload to get every site at once. `python get_demo_photos.py --sites` makes a simulated 3-site example from the test photos (`demo_survey_sites.csv` and `demo_survey/`), with known bleached shares of 84%, 49% and 12%.
 
 It writes `site_summary.csv`, `review_list.csv` and `report.md` to `survey_report/`. The rate is the share of photos flagged, not the share of coral cover bleached: it is a screening indicator for deciding where to send experts, and a trained reef monitor makes the final call.
 

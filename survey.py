@@ -9,14 +9,17 @@ reports, for each site:
   - how many photos are uncertain (P(bleached) close to the cutoff), which an expert should review;
   - a review list of all photos, most likely bleached first.
 
-Sites are the subfolders of the survey folder (survey/SiteA/*.jpg, survey/SiteB/*.jpg, ...). Photos
-directly in the survey folder count as one site named after the folder.
+Sites come from a sites CSV when one is given (columns: photo, site; one row per photo file name),
+otherwise from the subfolders of the survey folder (survey/SiteA/*.jpg, survey/SiteB/*.jpg, ...). Photos
+directly in the survey folder count as one site named after the folder; photos missing from a sites CSV
+are reported under "Unassigned".
 
 The rate is the share of PHOTOS flagged, not the share of coral cover that is bleached; it is a
 screening indicator for deciding where to send experts, and a trained reef monitor makes the final call.
 
   python survey.py demo_photos
   python survey.py surveys/2026-11 --out survey_report --top 15
+  python survey.py demo_photos --sites-csv demo_survey_sites.csv     # all photos in one folder, sites from the CSV
 """
 import argparse
 import math
@@ -102,6 +105,25 @@ def report_text(sites, review, threshold, top=10, skipped=()):
     return "\n".join(lines)
 
 
+PHOTO_COLS = ("photo", "file", "filename", "file_name", "image", "path")
+
+
+def load_site_map(csv_path):
+    """{photo file name (lower case): site} from a CSV with a photo column and a site column."""
+    df = pd.read_csv(csv_path)
+    cols = {c.strip().lower(): c for c in df.columns}
+    pc = next((cols[c] for c in PHOTO_COLS if c in cols), None)
+    sc = cols.get("site")
+    if pc is None or sc is None:
+        raise ValueError(f"{os.path.basename(csv_path)} needs a 'photo' column and a 'site' column (found: {list(df.columns)})")
+    return {os.path.basename(str(p)).strip().lower(): str(st).strip() for p, st in zip(df[pc], df[sc]) if pd.notna(p) and pd.notna(st)}
+
+
+def assign_sites(items, site_map):
+    """Replace each item's site with the one in site_map (by file name); photos not listed become 'Unassigned'."""
+    return [(site_map.get(os.path.basename(path).lower(), "Unassigned"), path, name) for _, path, name in items]
+
+
 def survey_items(folder):
     """(site, path, display name) for every image; the site is the first subfolder, else the folder's own name."""
     root = os.path.abspath(folder)
@@ -121,6 +143,7 @@ def main():
     ap.add_argument("--threshold", type=float, help="P(bleached) cutoff (default: the validation-selected cutoff saved with the model, else 0.5)")
     ap.add_argument("--out", default="survey_report", help="folder for site_summary.csv, review_list.csv and report.md")
     ap.add_argument("--top", type=int, default=10, help="how many photos to list in the review-first table")
+    ap.add_argument("--sites-csv", help="CSV with photo and site columns; overrides the subfolder sites")
     args = ap.parse_args()
 
     weights = args.weights or next((w for w in DEFAULT_WEIGHTS if os.path.exists(w)), None)
@@ -132,6 +155,8 @@ def main():
 
     out_dir = os.path.abspath(args.out) + os.sep
     items = [it for it in survey_items(args.folder) if not os.path.abspath(it[1]).startswith(out_dir)]
+    if args.sites_csv:
+        items = assign_sites(items, load_site_map(args.sites_csv))
     photos, skipped = classify(clf, items, threshold)
     if photos.empty:
         raise SystemExit("No readable photos in " + args.folder)
