@@ -14,3 +14,4 @@ __pycache__/
 # Demo photos copied from the Kaggle dataset by get_demo_photos.py
 demo_photos/
 demo_output/
+survey_report/

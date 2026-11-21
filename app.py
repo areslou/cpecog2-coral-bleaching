@@ -1,7 +1,8 @@
 """Coral bleaching screening GUI (CPECOG2 Group 2).
 
-A drag-and-drop window around the same model code as demo.py: drop in a reef photo and it shows
-healthy or bleached, P(bleached), the decision rule, and the Grad-CAM heatmap. It runs on the
+A drag-and-drop window around the same model code as demo.py. The "Single photo" tab shows healthy or
+bleached, P(bleached), the decision rule, and the Grad-CAM heatmap; the "Survey summary" tab takes all the
+photos from one site and reports the share flagged as bleached and the order an expert should review them. It runs on the
 laptop's own CPU at http://127.0.0.1:7860 and needs no internet once requirements.txt is installed.
 
   python app.py                          # opens the browser automatically
@@ -11,12 +12,14 @@ If anything goes wrong during a presentation, demo.py does the same job from the
 """
 import argparse
 import os
+import tempfile
 
 os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")   # no usage pings; the demo must work offline
 
 import torch
 
 from demo import DEFAULT_WEIGHTS, default_threshold, load_model, overlay, pad_square, spec_note
+from survey import classify as survey_classify, report_text, review_list, summarize
 
 
 def build(weights, threshold):
@@ -45,22 +48,58 @@ def build(weights, threshold):
                 "*Screening aid only: a trained reef monitor makes the final call.*"
         return text, overlay(im, cam, box, sq.size[0])
 
+    def survey(files, site):
+        if not files:
+            return "Upload the photos from one survey or site, then press **Summarize survey**.", [], None
+        site = (site or "").strip() or "Survey"
+        items = []
+        for f in files:
+            path = f if isinstance(f, str) else getattr(f, "name", str(f))
+            items.append((site, path, os.path.basename(path)))
+        photos, skipped = survey_classify(clf, items, thr)
+        if photos.empty:
+            return "None of the uploaded files is a readable image.", [], None
+        sites, review = summarize(photos), review_list(photos)
+        text = report_text(sites, review, thr, top=10, skipped=skipped)
+        flagged = review[review["prediction"] == "bleached"].head(8)
+        gallery = [(r["path"], f"#{r['rank']}  P(bleached) {r['p_bleached']:.2f}") for _, r in flagged.iterrows()]
+        out_dir = tempfile.mkdtemp(prefix="survey_")
+        csv_path = os.path.join(out_dir, f"review_list_{site.replace(' ', '_')}.csv")
+        review.drop(columns=["path"]).to_csv(csv_path, index=False)
+        return text, gallery, csv_path
+
     with gr.Blocks(title="Coral Bleaching Screening") as ui:
         gr.Markdown("# Coral Bleaching Screening\n"
                     f"CPECOG2 Group 2 · model: {clf.arch}, {size_mb:.1f} MB, runs on this computer's CPU · {rule}")
-        with gr.Row():
-            with gr.Column():
-                inp = gr.Image(type="pil", label="Reef photo (JPG, PNG, BMP, WEBP or TIFF)", height=360)
+        with gr.Tabs():
+            with gr.Tab("Single photo"):
                 with gr.Row():
-                    clear = gr.ClearButton(value="Clear")
-                    run = gr.Button("Classify", variant="primary")
-            with gr.Column():
-                verdict = gr.Markdown("Drop a reef photo on the left, then press **Classify**.")
-                heat = gr.Image(type="pil", label="Photo | Grad-CAM heatmap", interactive=False)
-        run.click(classify, inputs=inp, outputs=[verdict, heat])
-        inp.upload(classify, inputs=inp, outputs=[verdict, heat])
-        clear.add([inp, heat])
-        clear.click(lambda: "Drop a reef photo on the left, then press **Classify**.", outputs=verdict)
+                    with gr.Column():
+                        inp = gr.Image(type="pil", label="Reef photo (JPG, PNG, BMP, WEBP or TIFF)", height=360)
+                        with gr.Row():
+                            clear = gr.ClearButton(value="Clear")
+                            run = gr.Button("Classify", variant="primary")
+                    with gr.Column():
+                        verdict = gr.Markdown("Drop a reef photo on the left, then press **Classify**.")
+                        heat = gr.Image(type="pil", label="Photo | Grad-CAM heatmap", interactive=False)
+                run.click(classify, inputs=inp, outputs=[verdict, heat])
+                inp.upload(classify, inputs=inp, outputs=[verdict, heat])
+                clear.add([inp, heat])
+                clear.click(lambda: "Drop a reef photo on the left, then press **Classify**.", outputs=verdict)
+            with gr.Tab("Survey summary"):
+                gr.Markdown("Upload every photo from one dive survey or site. The tool reports the share of photos flagged "
+                            "as bleached (with a 95% confidence interval), how many are uncertain, and the order in which "
+                            "an expert should review them.")
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        files = gr.File(file_count="multiple", file_types=["image"], label="Survey photos")
+                        site = gr.Textbox(label="Site name", placeholder="e.g. Anilao, Site 3")
+                        go = gr.Button("Summarize survey", variant="primary")
+                        csv_out = gr.File(label="Review list (CSV)", interactive=False)
+                    with gr.Column(scale=2):
+                        report = gr.Markdown("Upload the photos from one survey or site, then press **Summarize survey**.")
+                        gallery = gr.Gallery(label="Review first: photos most likely bleached", columns=4, height="auto")
+                go.click(survey, inputs=[files, site], outputs=[report, gallery, csv_out])
     return ui
 
 
