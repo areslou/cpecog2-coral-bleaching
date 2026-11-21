@@ -20,7 +20,7 @@ os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")   # no usage pings; t
 import torch
 
 from demo import DEFAULT_WEIGHTS, default_threshold, load_model, overlay, pad_square, spec_note
-from survey import classify as survey_classify, report_text, review_list, summarize
+from survey import assign_sites, classify as survey_classify, load_site_map, report_text, review_list, summarize
 
 
 def build(weights, threshold):
@@ -53,10 +53,16 @@ def build(weights, threshold):
         if not files:
             return "Upload the photos from one survey or site, then press **Summarize survey**.", [], None
         site = (site or "").strip() or "Survey"
-        items = []
-        for f in files:
-            path = f if isinstance(f, str) else getattr(f, "name", str(f))
-            items.append((site, path, os.path.basename(path)))
+        paths = [f if isinstance(f, str) else getattr(f, "name", str(f)) for f in files]
+        csvs = [p for p in paths if p.lower().endswith(".csv")]
+        items = [(site, p, os.path.basename(p)) for p in paths if not p.lower().endswith(".csv")]
+        if csvs:   # sites CSV uploaded with the photos: one upload, many sites
+            try:
+                items = assign_sites(items, load_site_map(csvs[0]))
+            except ValueError as e:
+                return f"Sites CSV problem: {e}", [], None
+        if not items:
+            return "Upload photos too, not only the sites CSV.", [], None
         photos, skipped = survey_classify(clf, items, thr)
         if photos.empty:
             return "None of the uploaded files is a readable image.", [], None
@@ -88,13 +94,14 @@ def build(weights, threshold):
                 clear.add([inp, heat])
                 clear.click(lambda: "Drop a reef photo on the left, then press **Classify**.", outputs=verdict)
             with gr.Tab("Survey summary"):
-                gr.Markdown("Upload every photo from one dive survey or site. The tool reports the share of photos flagged "
-                            "as bleached (with a 95% confidence interval), how many are uncertain, and the order in which "
-                            "an expert should review them.")
+                gr.Markdown("Upload every photo from a survey. For **several sites at once**, add a sites CSV in the same upload "
+                            "(columns `photo` and `site`, one row per photo file name); otherwise all photos count as the one site named below. "
+                            "The tool reports the share of photos flagged as bleached per site (with a 95% confidence interval), "
+                            "how many are uncertain, and the order in which an expert should review them.")
                 with gr.Row():
                     with gr.Column(scale=1):
-                        files = gr.File(file_count="multiple", file_types=["image"], label="Survey photos")
-                        site = gr.Textbox(label="Site name", placeholder="e.g. Anilao, Site 3")
+                        files = gr.File(file_count="multiple", file_types=["image", ".csv"], label="Survey photos (+ optional sites CSV)")
+                        site = gr.Textbox(label="Site name (used when no sites CSV is uploaded)", placeholder="e.g. Anilao, Site 3")
                         go = gr.Button("Summarize survey", variant="primary")
                         csv_out = gr.File(label="Review list (CSV)", interactive=False)
                     with gr.Column(scale=2):
@@ -108,6 +115,8 @@ def free_port(start, tries=50):
     """First port from `start` that can be opened on this computer (skips busy and Windows-reserved ports)."""
     for port in range(start, start + tries):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if os.name != "nt":   # a port left in TIME_WAIT by a closed app.py is reusable (the server sets this too)
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
                 s.bind(("127.0.0.1", port))
                 return port

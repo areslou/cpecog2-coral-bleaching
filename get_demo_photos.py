@@ -6,7 +6,7 @@ dataset is downloaded with kagglehub (internet needed once); each photo is saved
 
   python get_demo_photos.py                      # test photos -> demo_photos/
   python get_demo_photos.py --source path/to/dataset/folder   # skip the download
-  python get_demo_photos.py --sites              # also build demo_survey/ with 3 example sites for survey.py
+  python get_demo_photos.py --sites              # also make 3 example sites: demo_survey_sites.csv + demo_survey/
 
 The example sites are simulated: test photos mixed in known proportions, so the survey ranking can be checked.
 """
@@ -65,11 +65,12 @@ def main():
         build_sites(args.out)
 
 
-SITES = [("Site_A", 25, 5), ("Site_B", 12, 18), ("Site_C", 3, 27)]   # (name, bleached photos, healthy photos)
+SITES = [("Site_A", 42, 8), ("Site_B", 20, 21), ("Site_C", 5, 35)]   # (name, bleached, healthy): all 67 + 64 test photos
 
 
-def build_sites(photo_dir, survey_dir="demo_survey", seed=42):
-    """Simulated survey: three site folders mixed from the test photos in known proportions."""
+def build_sites(photo_dir, survey_dir="demo_survey", csv_path="demo_survey_sites.csv", seed=42):
+    """Simulated survey from the test photos in known proportions, two ways: a sites CSV (photo, site) for one-upload
+    use with all of demo_photos/, and one folder per site under demo_survey/."""
     files = sorted(glob.glob(os.path.join(photo_dir, "*")))
     pools = {lab: [f for f in files if os.path.basename(f).startswith(lab + "_")] for lab in ("bleached", "healthy")}
     rng = random.Random(seed)
@@ -79,14 +80,19 @@ def build_sites(photo_dir, survey_dir="demo_survey", seed=42):
     if any(len(pools[k]) < need[k] for k in need):
         raise SystemExit(f"Not enough photos in {photo_dir} to build the sites (need {need}).")
     shutil.rmtree(survey_dir, ignore_errors=True)
+    rows = []
     print(f"Simulated survey in {os.path.abspath(survey_dir)} (true bleached share per site):")
     for name, nb, nh in SITES:
         d = os.path.join(survey_dir, name); os.makedirs(d)
         for f in pools["bleached"][:nb] + pools["healthy"][:nh]:
             shutil.copy(f, d)
+            rows.append(dict(photo=os.path.basename(f), site=name))
         pools["bleached"], pools["healthy"] = pools["bleached"][nb:], pools["healthy"][nh:]
         print(f"  {name}: {nb + nh} photos, {nb} truly bleached ({nb / (nb + nh):.0%})")
-    print(f"Next: python survey.py {survey_dir}")
+    pd.DataFrame(rows).sort_values(["site", "photo"]).to_csv(csv_path, index=False)
+    print(f"Sites CSV: {os.path.abspath(csv_path)} ({len(rows)} photos)")
+    print(f"Next: python survey.py {survey_dir}   or   python survey.py {photo_dir} --sites-csv {csv_path}")
+    print(f"GUI: in Survey summary, upload all photos in {photo_dir} together with {csv_path}")
 
 
 if __name__ == "__main__":
