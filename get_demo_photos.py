@@ -30,7 +30,7 @@ def main():
     ap.add_argument("--sites", action="store_true", help="also build demo_survey/ with 3 simulated sites (known bleached share)")
     args = ap.parse_args()
 
-    existing = glob.glob(os.path.join(args.out, "*_*.*"))
+    existing = [f for f in glob.glob(os.path.join(args.out, "*_*.*")) if f.lower().endswith(IMG_EXTS)]
     if args.sites and args.source is None and len(existing) >= 100:
         print(f"Using the {len(existing)} photos already in {args.out}")
         build_sites(args.out)
@@ -71,7 +71,7 @@ SITES = [("Site_A", 42, 8), ("Site_B", 20, 21), ("Site_C", 5, 35)]   # (name, bl
 def build_sites(photo_dir, survey_dir="demo_survey", csv_path="demo_survey_sites.csv", seed=42):
     """Simulated survey from the test photos in known proportions, two ways: a sites CSV (photo, site) for one-upload
     use with all of demo_photos/, and one folder per site under demo_survey/."""
-    files = sorted(glob.glob(os.path.join(photo_dir, "*")))
+    files = sorted(f for f in glob.glob(os.path.join(photo_dir, "*")) if f.lower().endswith(IMG_EXTS))
     pools = {lab: [f for f in files if os.path.basename(f).startswith(lab + "_")] for lab in ("bleached", "healthy")}
     rng = random.Random(seed)
     for v in pools.values():
@@ -90,9 +90,10 @@ def build_sites(photo_dir, survey_dir="demo_survey", csv_path="demo_survey_sites
         pools["bleached"], pools["healthy"] = pools["bleached"][nb:], pools["healthy"][nh:]
         print(f"  {name}: {nb + nh} photos, {nb} truly bleached ({nb / (nb + nh):.0%})")
     pd.DataFrame(rows).sort_values(["site", "photo"]).to_csv(csv_path, index=False)
-    print(f"Sites CSV: {os.path.abspath(csv_path)} ({len(rows)} photos)")
+    shutil.copy(csv_path, photo_dir)   # same folder as the photos, so one Ctrl+A selects photos + CSV in the GUI
+    print(f"Sites CSV: {os.path.abspath(csv_path)} ({len(rows)} photos), also copied into {photo_dir}/")
     print(f"Next: python survey.py {survey_dir}   or   python survey.py {photo_dir} --sites-csv {csv_path}")
-    print(f"GUI: in Survey summary, upload all photos in {photo_dir} together with {csv_path}")
+    print(f"GUI: in Survey summary, open {photo_dir}, press Ctrl+A (photos + CSV), Open, then Summarize survey")
 
 
 if __name__ == "__main__":
