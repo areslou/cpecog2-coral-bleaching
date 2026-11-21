@@ -33,6 +33,7 @@ download_results.py                  package and download the external evaluatio
 data/splits.csv                      file name, label, split, perceptual hash for every image used (Run 1 split)
 results/run1/                        Run 1 metrics, confusion matrix, training curves, summary
 results/run2/                        Run 2 outputs (unzip run2_results.zip here)
+results/run3/                        Run 3 threshold-tuning outputs and final model
 requirements.txt                     library versions (exact ultralytics version)
 ```
 
@@ -57,11 +58,11 @@ In Colab, this asks the browser to download `coral_external_results.zip`. Outsid
 
 ### Leakage-safe threshold tuning
 
-Run 2 now separates threshold selection from final evaluation:
+Run 3 separates threshold selection from final evaluation:
 
 1. The operating cutoff is selected only from seed-42 validation probabilities.
 2. The cutoff search prefers the highest validation macro F1 among cutoffs that achieve at least 0.90 bleached recall.
-3. The selected cutoff is saved in `results/run2/selected_threshold.csv`.
+3. The selected cutoff is saved in `results/run3/selected_threshold.csv`.
 4. The held-out test set is evaluated once with that fixed cutoff.
 5. The external BU/BHD set is evaluated once with the same validation-selected cutoff.
 
@@ -133,9 +134,40 @@ Error analysis (seed 42, [`test_errors.csv`](results/run2/test_errors.csv), [`gr
 
 External set: Run 2 section 8 evaluated only the BU images (n = 238: macro F1 0.768 ± 0.034, bleached recall 0.672 ± 0.081). The BHD files are named `*_hbd_*` in the Hugging Face zip, so the name check missed them. The notebook is fixed, and `eval_external.py` evaluates the final model on BU + BHD.
 
+### Run 3 (Nov. 21, 2026): leakage-safe threshold experiment
+
+Run 3 retrains the Run 2 final configuration, YOLOv8s-cls with dropout 0.3, and uses the same 629/132/131 split. The decision threshold was selected only on seed-42 validation probabilities, before held-out test evaluation:
+
+| Item | Result |
+| :-- | :-- |
+| Validation-selected threshold | 0.1774575 |
+| Validation bleached recall | 0.802 ± 0.008 |
+| Held-out macro F1 | 0.819 ± 0.008 |
+| Held-out bleached recall | 0.915 ± 0.031 |
+| Held-out accuracy / ROC AUC | 0.822 ± 0.009 / 0.921 ± 0.007 |
+| Scratch-CNN test macro F1 | 0.755 |
+| Gain over scratch CNN | +6.4 points |
+| Model size | 10.3 MB |
+| CPU latency | 27 ms/image |
+
+By seed, held-out macro F1 was 0.815, 0.814 and 0.829; bleached recall was 0.881, 0.925 and 0.940. Seed 42 produced a confusion matrix of [[48, 16], [8, 59]] for healthy and bleached rows/columns, with 24 errors.
+
+External BU + BHD evaluation used 1,134 images after removing 28 within-set repeats and 7 matches with the primary dataset:
+
+| External set | Macro F1 | Bleached recall | Accuracy |
+| :-- | :-- | :-- | :-- |
+| BU + BHD | 0.759 ± 0.052 | 0.855 ± 0.042 | 0.760 ± 0.052 |
+| BU | 0.794 ± 0.057 mean seed result | 0.811 ± 0.070 mean seed result | 0.796 ± 0.052 mean seed result |
+| BHD | 0.749 ± 0.051 mean seed result | 0.869 ± 0.033 mean seed result | 0.750 ± 0.051 mean seed result |
+
+The external performance shown here comes from the validation-selected 0.1774575 cutoff. The BU/BHD threshold was not used to choose or change the cutoff.
+
+**Run 2 vs. Run 3:** Run 2 is stronger for overall classification (macro F1 0.839 vs. 0.819), while Run 3 is safer for screening because held-out bleached recall rises from 0.801 to 0.915. Run 3 also reaches the bleached-recall target but not the macro-F1, scratch-CNN gain, or external macro-F1 targets.
+
+Run 3 outputs are stored in [`results/run3/`](results/run3/), including the threshold tables, seed metrics, confusion matrices, Grad-CAM image, predictions, and final model.
+
 ## Next steps
 
-- Run `python eval_external.py --weights results/run2/final_model_s42.pt` on Colab for the BU + BHD external result, and commit `results/run2/`.
 - Measure CPU latency on a team laptop with `python demo.py <test images> --benchmark`.
 - Test the demo from a clean environment, and record the backup video.
 - Write the results, error analysis and Grad-CAM findings into the report and slides.
