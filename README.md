@@ -68,6 +68,10 @@ Pass `--threshold 0.xxx` to `eval_external.py` after selecting the cutoff. The t
 
 `notebooks/Group2_Coral_Run4.ipynb` tests batch size 16, weight decay 0 and 0.001, and YOLOv8n-cls, one at a time from the final configuration (R4, dropout 0.3), on the validation set only (about 15 minutes on a T4). The test and external sets are not used, so the final model does not change. Unzip `run4_results.zip` into `results/run4/`.
 
+### Scale and crop augmentation (Run 5)
+
+`notebooks/Group2_Coral_Run5.ipynb` compares scale/crop-oriented augmentation from the Run 3 final configuration (YOLOv8s-cls, dropout 0.3). It tunes candidates only on seed-42 validation data and requires at least 0.90 validation bleached recall before selecting a threshold. The held-out test set and external BU/BHD set are evaluated once, after the candidate and cutoff are fixed.
+
 ### GUI (laptop CPU, no GPU or internet needed)
 
 ```
