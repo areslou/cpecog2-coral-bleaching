@@ -1,0 +1,9 @@
+{
+  "name": "R12_run3_reference",
+  "threshold": 0.01,
+  "settings": {
+    "scale": 0.1,
+    "erasing": 0.0,
+    "translate": 0.0
+  }
+}
