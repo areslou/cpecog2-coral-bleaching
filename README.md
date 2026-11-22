@@ -86,7 +86,7 @@ The candidates are tuned only on seed-42 validation data. A candidate and its th
 
 ### Google Colab demo
 
-Open [`notebooks/Group2_Coral_Demo.ipynb`](notebooks/Group2_Coral_Demo.ipynb) in Colab. It clones this repository, loads the Run 5 R14 seed-42 model, and launches the Gradio app with a public `gradio.live` link.
+Open [`notebooks/Group2_Coral_Demo.ipynb`](notebooks/Group2_Coral_Demo.ipynb) in Colab. It clones this repository, loads the Run 10 model (three distilled YOLOv8s-cls seeds averaged, cutoff 0.127), and launches the Gradio app with a public `gradio.live` link.
 
 ### GUI (laptop CPU, no GPU or internet needed)
 
@@ -125,7 +125,7 @@ python demo.py path/to/folder --show                 # also open each heatmap in
 python demo.py path/to/folder --benchmark            # CPU latency: 100 images, batch 1, after 10 warm-ups
 ```
 
-The demo uses the newest final model it finds (`results/run5/`, then `results/run3/`, then `results/run2/`), or `--weights path/to/model.pt`. A photo is called bleached when P(bleached) reaches the cutoff: the validation-selected 0.285 cutoff for the Run 5 R14 seed-42 model, the Run 3 cutoff for Run 3 weights, otherwise 0.5; `--threshold` overrides it. For each image it prints the predicted class, its probability and P(bleached), and saves the photo next to a Grad-CAM overlay (red = regions that drove the prediction) in `demo_output/`. `--benchmark` is the latency test the success criteria ask for on a team laptop CPU. The model is a screening aid; a trained reef monitor makes the final call.
+The demo uses the newest final model it finds (`results/run10/final_model.json`, then `results/run5/`, `results/run3/`, `results/run2/`), or `--weights path/to/final_model.json` or `path/to/model.pt`. The Run 10 model averages P(bleached) from three YOLOv8s-cls students (seeds 42, 43, 44, trained with knowledge distillation from DINOv2) and shows the Grad-CAM heatmap of the seed-42 model. A photo is called bleached when P(bleached) reaches the cutoff: 0.127 for Run 10 (from 5-fold cross-validation, saved in `final_model.json`), the validation-selected 0.285 for the Run 5 R14 seed-42 model, the Run 3 cutoff for Run 3 weights, otherwise 0.5; `--threshold` overrides it. For each image it prints the predicted class, its probability and P(bleached), and saves the photo next to a Grad-CAM overlay (red = regions that drove the prediction) in `demo_output/`. `--benchmark` is the latency test the success criteria ask for on a team laptop CPU. The model is a screening aid; a trained reef monitor makes the final call.
 
 Supported input: JPG, PNG, BMP, WEBP or TIFF photos of coral, at least 100 px per side. Files that are not readable images are skipped with a message. Images smaller than 100 px or with almost no detail (blank or solid colour) are still classified but flagged `outside specs`, because the model was only trained on reef photos. The demo and the GUI never install packages and need no internet once `requirements.txt` is installed.
 

@@ -161,7 +161,7 @@ def survey_items(folder):
 def main():
     ap = argparse.ArgumentParser(description="Site-level bleaching summary and review list for a folder of survey photos.")
     ap.add_argument("folder", help="survey folder; each subfolder is one site")
-    ap.add_argument("--weights", help="model weights (default: the final model in results/)")
+    ap.add_argument("--weights", help="final_model.json (averaged model) or one .pt file (default: results/run10/final_model.json)")
     ap.add_argument("--threshold", type=float, help="P(bleached) cutoff (default: the validation-selected cutoff saved with the model, else 0.5)")
     ap.add_argument("--out", default="survey_report", help="folder for site_summary.csv, review_list.csv and report.md")
     ap.add_argument("--top", type=int, default=10, help="how many photos to list in the review-first table")
@@ -170,7 +170,8 @@ def main():
 
     weights = args.weights or next((w for w in DEFAULT_WEIGHTS if os.path.exists(w)), None)
     if not weights or not os.path.exists(weights):
-        raise SystemExit("No weights found. Put the final model in results/run5/, or pass --weights path/to/model.pt")
+        raise SystemExit("No model found. Put the Run 10 files (final_model.json and final_model_s42/43/44.pt) in results/run10/, "
+                         "or pass --weights path/to/final_model.json or path/to/model.pt")
     threshold = args.threshold if args.threshold is not None else default_threshold(weights)[0]
     torch.set_num_threads(max(1, os.cpu_count() or 1))
     clf = load_model(weights)

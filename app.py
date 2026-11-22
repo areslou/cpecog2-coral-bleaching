@@ -5,8 +5,8 @@ bleached, P(bleached), the decision rule, and the Grad-CAM heatmap; the "Survey 
 photos from one site and reports the share flagged as bleached and the order an expert should review them. It runs on the
 laptop's own CPU at http://127.0.0.1:7860 and needs no internet once requirements.txt is installed.
 
-  python app.py                          # opens the browser automatically
-  python app.py --weights path/to/model.pt --threshold 0.5 --port 7861
+  python app.py                          # opens the browser automatically (Run 10 model by default)
+  python app.py --weights path/to/final_model.json --threshold 0.5 --port 7861   # or a single path/to/model.pt
 
 If anything goes wrong during a presentation, demo.py does the same job from the terminal.
 """
@@ -19,7 +19,7 @@ os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")   # no usage pings; t
 
 import torch
 
-from demo import DEFAULT_WEIGHTS, default_threshold, load_model, overlay, pad_square, spec_note
+from demo import DEFAULT_WEIGHTS, default_threshold, load_model, model_size_mb, overlay, pad_square, spec_note
 from survey import assign_sites, classify as survey_classify, items_from_csv, load_site_map, report_text, review_list, summarize
 
 
@@ -28,8 +28,9 @@ def build(weights, threshold):
 
     clf = load_model(weights)
     thr, thr_src = (threshold, "--threshold") if threshold is not None else default_threshold(weights)
-    size_mb = os.path.getsize(weights) / 1e6
-    rule = f"bleached when P(bleached) ≥ {thr:.3f}" + (" (validation-selected cutoff)" if thr_src.endswith(".csv") else "")
+    size_mb = model_size_mb(weights)
+    rule = f"bleached when P(bleached) ≥ {thr:.3f}" + (" (validation-selected cutoff)" if thr_src.endswith(".csv")
+                                                      else " (cross-validated cutoff)" if thr_src.endswith(".json") else "")
 
     def classify(im):
         if im is None:
@@ -135,7 +136,7 @@ def free_port(start, tries=50):
 
 def main():
     ap = argparse.ArgumentParser(description="Drag-and-drop GUI for the coral bleaching model.")
-    ap.add_argument("--weights", help="model weights (default: the final model in results/)")
+    ap.add_argument("--weights", help="final_model.json (averaged model) or one .pt file (default: results/run10/final_model.json)")
     ap.add_argument("--threshold", type=float, help="P(bleached) cutoff (default: the validation-selected cutoff saved with the model, else 0.5)")
     ap.add_argument("--port", type=int, default=7860, help="first port to try; the next free one is used if it is busy")
     ap.add_argument("--no-browser", action="store_true", help="do not open the browser automatically")
@@ -143,7 +144,8 @@ def main():
 
     weights = args.weights or next((w for w in DEFAULT_WEIGHTS if os.path.exists(w)), None)
     if not weights or not os.path.exists(weights):
-        raise SystemExit("No weights found. Put the final model in results/run5/, or pass --weights path/to/model.pt")
+        raise SystemExit("No model found. Put the Run 10 files (final_model.json and final_model_s42/43/44.pt) in results/run10/, "
+                         "or pass --weights path/to/final_model.json or path/to/model.pt")
     torch.set_num_threads(max(1, os.cpu_count() or 1))
     port = free_port(args.port)
     if port != args.port:

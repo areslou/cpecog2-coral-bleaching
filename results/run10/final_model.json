@@ -1,0 +1,27 @@
+{
+  "run": 10,
+  "final": "K2_a0.5_T4_3seed_average",
+  "architecture": "YOLOv8s-cls (Ultralytics), 2-class output, dropout 0.3",
+  "training": "knowledge distillation from DINOv2 ViT-S/14 (alpha=0.5, T=4.0)",
+  "models": [
+    "final_model_s42.pt",
+    "final_model_s43.pt",
+    "final_model_s44.pt"
+  ],
+  "combine": "mean of P(bleached)",
+  "threshold": 0.127,
+  "threshold_source": "5-fold out-of-fold predictions (recall >= 0.9)",
+  "classes": {
+    "0": "healthy",
+    "1": "bleached"
+  },
+  "imgsz": 224,
+  "size_mb": {
+    "single": 10.3,
+    "3-seed average": 30.8
+  },
+  "cpu_latency_ms": {
+    "single": 25,
+    "3-seed average": 82
+  }
+}

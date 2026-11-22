@@ -10,10 +10,11 @@ Examples
   python demo.py photos/ --show                      # also open each heatmap in a window
   python demo.py photos/ --benchmark                 # CPU latency, proposal protocol
 
-The weights default to results/run5/final_model_s42.pt written by
-notebooks/Group2_Coral_Run5.ipynb. The model card saved next to the weights
-(<weights>.json) gives the architecture, class order and preprocessing; without it the type is
-detected from the file. The tool is a screening aid: a trained person makes the final call.
+The model defaults to results/run10/final_model.json written by notebooks/Group2_Coral_Run10.ipynb:
+three YOLOv8s-cls students (seeds 42, 43, 44, distilled from DINOv2) whose P(bleached) values are
+averaged, with the cross-validated cutoff saved in that file. --weights also accepts a single .pt file;
+the model card saved next to it (<weights>.json) gives the architecture, class order and preprocessing;
+without it the type is detected from the file. The tool is a screening aid: a trained person makes the final call.
 """
 import argparse
 import csv
@@ -48,6 +49,7 @@ def spec_note(im):
         return "outside specs: almost no detail (blank or solid image)"
     return ""
 DEFAULT_WEIGHTS = [
+    "results/run10/final_model.json",
     "results/run5/final_model_s42.pt",
     "results/run5/final_model_s43.pt",
     "results/run5/final_model_s44.pt",
@@ -61,7 +63,12 @@ def default_threshold(weights):
 
     Run 5 and Run 3 selected their cutoffs on validation only and save them as selected_threshold.csv next to their models.
     The cutoff belongs to the model it was selected for, so it is only used when that file sits in the same
-    folder as the weights; any other model uses 0.5 (the plain highest-probability class)."""
+    folder as the weights; any other model uses 0.5 (the plain highest-probability class).
+    For an averaged model (a final_model.json that lists several model files), the cutoff saved in that file is used."""
+    if weights.lower().endswith(".json"):
+        card = json.load(open(weights))
+        if card.get("threshold") is not None:
+            return float(card["threshold"]), os.path.relpath(weights)
     path = os.path.join(os.path.dirname(os.path.abspath(weights)), "selected_threshold.csv")
     if os.path.exists(path):
         with open(path, newline="") as f:
@@ -119,15 +126,16 @@ class Classifier:
         """Predicted class index: bleached when P(bleached) >= threshold, otherwise the other class."""
         return self.bleached if float(probs[self.bleached]) >= threshold else 1 - self.bleached
 
-    def gradcam(self, x, threshold=0.5):
-        """Probabilities and a Grad-CAM map (imgsz x imgsz, 0..1) for the predicted class."""
+    def gradcam(self, x, threshold=0.5, cls=None):
+        """Probabilities and a Grad-CAM map (imgsz x imgsz, 0..1) for the predicted class (or for `cls` if given)."""
         store = {}
         hook = self.cam_layer.register_forward_hook(lambda m, i, o: store.__setitem__("a", o))
         try:
             logits = self.logits(x)
         finally:
             hook.remove()
-        cls = self.decide(logits.detach().softmax(1)[0], threshold)
+        if cls is None:
+            cls = self.decide(logits.detach().softmax(1)[0], threshold)
         a = store["a"]
         grad = torch.autograd.grad(logits[0, cls], a)[0]
         cam = F.relu((grad.mean((2, 3), keepdim=True) * a).sum(1, keepdim=True))
@@ -136,7 +144,61 @@ class Classifier:
         return logits.detach().softmax(1)[0], cam
 
 
+class Ensemble:
+    """Several models with the same input whose P(bleached) values are averaged (Run 7 and Run 10 final models).
+
+    Same interface as Classifier. Grad-CAM comes from the first model, for the class the averaged prediction decides."""
+
+    def __init__(self, members, arch):
+        self.members, self.arch = members, arch
+        first = members[0]
+        self.classes, self.imgsz, self.bleached = first.classes, first.imgsz, first.bleached
+        for m in members[1:]:
+            if m.imgsz != first.imgsz or m.classes != first.classes:
+                sys.exit("The averaged models must share the input size and class order.")
+
+    def to_input(self, square):
+        return self.members[0].to_input(square)
+
+    def decide(self, probs, threshold=0.5):
+        return self.members[0].decide(probs, threshold)
+
+    def _probs(self, x, member):
+        p = member.predict(x)                      # each member's probabilities in this ensemble's class order
+        return p if member.classes == self.classes else p[[member.classes.index(c) for c in self.classes]]
+
+    def predict(self, x):
+        return torch.stack([self._probs(x, m) for m in self.members]).mean(0)
+
+    def gradcam(self, x, threshold=0.5):
+        probs = self.predict(x)
+        with torch.enable_grad():
+            _, cam = self.members[0].gradcam(x, threshold, cls=self.decide(probs, threshold))
+        return probs, cam
+
+
+def model_files(weights):
+    """The weight files behind `weights` (one .pt file, or the files listed in a final_model.json)."""
+    if weights.lower().endswith(".json"):
+        card = json.load(open(weights))
+        return [os.path.join(os.path.dirname(os.path.abspath(weights)), f) for f in card["models"]]
+    return [weights]
+
+
+def model_size_mb(weights):
+    return sum(os.path.getsize(f) for f in model_files(weights)) / 1e6
+
+
 def load_model(weights):
+    if weights.lower().endswith(".json"):          # averaged model: load every listed file
+        files = model_files(weights)
+        missing = [f for f in files if not os.path.exists(f)]
+        if missing:
+            sys.exit(f"{weights} lists model files that are missing: {', '.join(os.path.basename(f) for f in missing)}")
+        members = [load_model(f) for f in files]
+        if len(members) == 1:
+            return members[0]
+        return Ensemble(members, f"{len(members)} x {members[0].arch} (mean of P(bleached))")
     card_path = os.path.splitext(weights)[0] + ".json"
     card = json.load(open(card_path)) if os.path.exists(card_path) else {}
     imgsz = int(card.get("imgsz", 224))
@@ -241,7 +303,7 @@ def benchmark(clf, files, n=100, warm=10):
 def main():
     ap = argparse.ArgumentParser(description="Classify reef photos as healthy or bleached, with Grad-CAM heatmaps.")
     ap.add_argument("target", help="an image file or a folder of images")
-    ap.add_argument("--weights", help="model weights (default: Run 5 R14 seed 42 in results/run5/)")
+    ap.add_argument("--weights", help="final_model.json (averaged model) or one .pt file (default: results/run10/final_model.json)")
     ap.add_argument("--out", default="demo_output", help="folder for the heatmap images (default: demo_output)")
     ap.add_argument("--csv", help="also write the predictions to this CSV file")
     ap.add_argument("--no-heatmap", action="store_true", help="skip Grad-CAM (faster)")
@@ -252,7 +314,8 @@ def main():
 
     weights = args.weights or next((w for w in DEFAULT_WEIGHTS if os.path.exists(w)), None)
     if not weights or not os.path.exists(weights):
-        sys.exit("No weights found. Put final_model_s42.pt in results/run5/ or pass --weights path/to/model.pt")
+        sys.exit("No model found. Put the Run 10 files (final_model.json and final_model_s42/43/44.pt) in results/run10/, "
+                 "or pass --weights path/to/final_model.json or path/to/model.pt")
     torch.set_num_threads(max(1, os.cpu_count() or 1))
     clf = load_model(weights)
     out_dir = os.path.abspath(args.out) + os.sep
@@ -260,7 +323,7 @@ def main():
     if not files:
         sys.exit(f"No images to classify in {args.target}")
     threshold, thr_src = (args.threshold, "--threshold") if args.threshold is not None else default_threshold(weights)
-    print(f"Model: {clf.arch} ({os.path.getsize(weights) / 1e6:.1f} MB) from {weights}; classes {clf.classes}")
+    print(f"Model: {clf.arch} ({model_size_mb(weights):.1f} MB) from {weights}; classes {clf.classes}")
     print(f"Decision rule: bleached when P(bleached) >= {threshold:.3f} ({thr_src})")
 
     if args.benchmark:

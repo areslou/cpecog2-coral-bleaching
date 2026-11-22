@@ -1,0 +1,21 @@
+RUN 10 SUMMARY (Nov. 22, 2026)
+Distillation from DINOv2 ViT-S/14 into YOLOv8s-cls; teacher trained per fold on training photos only; 5-fold CV on train + validation (n=761).
+Teacher out-of-fold ROC AUC by fold: [0.948, 0.937, 0.94, 0.928, 0.865].
+Cross-validation (out-of-fold):
+  S0_no_teacher: ROC AUC 0.894; macro F1 @0.5 0.809; cutoff 0.015 -> macro F1 0.774, bleached recall 0.903, healthy recall 0.642
+  K1_a0.5_T2: ROC AUC 0.901; macro F1 @0.5 0.823; cutoff 0.072 -> macro F1 0.768, bleached recall 0.901, healthy recall 0.634
+  K2_a0.5_T4: ROC AUC 0.909; macro F1 @0.5 0.834; cutoff 0.087 -> macro F1 0.794, bleached recall 0.901, healthy recall 0.684
+  K3_a0.2_T4: ROC AUC 0.905; macro F1 @0.5 0.824; cutoff 0.060 -> macro F1 0.771, bleached recall 0.901, healthy recall 0.640
+  K2_a0.5_T4_3seed_average: ROC AUC 0.913; macro F1 @0.5 0.858; cutoff 0.127 -> macro F1 0.808, bleached recall 0.901, healthy recall 0.712
+  Run 7 YOLOv8s-cls single (Ultralytics train): ROC AUC 0.894; macro F1 at its cutoff 0.788
+  Run 7 final, 3-seed average: ROC AUC 0.912; macro F1 at its cutoff 0.801
+Best config: K2_a0.5_T4 (alpha=0.5, T=4.0); final form: K2_a0.5_T4_3seed_average; beats Run 7 in cross-validation: True; test set evaluated: True.
+Held-out test (n=131, evaluated once):
+  Single students, seeds [42, 43, 44], at cutoff 0.087: macro F1 0.849 ± 0.025, bleached recall 0.910 ± 0.015, healthy recall 0.786 ± 0.059, ROC AUC 0.930 ± 0.005; at 0.5 macro F1 0.878 ± 0.008, recall 0.836 ± 0.015.
+  3-seed average at cutoff 0.127: macro F1 0.862, bleached recall 0.925, healthy recall 0.797, ROC AUC 0.939, confusion matrix [[51, 13], [5, 62]]; at 0.5 macro F1 0.893, recall 0.851.
+  External BU + BHD (n=1134): single students at cutoff macro F1 0.828 ± 0.015, recall 0.923 ± 0.019; 3-seed average at cutoff macro F1 0.843, recall 0.941.
+  External BU (n=238): single students at cutoff macro F1 0.860 ± 0.028, recall 0.820 ± 0.057; 3-seed average at cutoff macro F1 0.870, recall 0.844.
+  External BHD (n=896): single students at cutoff macro F1 0.819 ± 0.013, recall 0.957 ± 0.016; 3-seed average at cutoff macro F1 0.836, recall 0.973.
+Final model (3-seed average): 30.8 MB, 82 ms/image (Colab CPU); single student 10.3 MB, 25 ms.
+Targets on test (final model at its cutoff): macro F1 >= 0.90 NOT met (0.862); bleached recall >= 0.90 met (0.925); size < 50 MB met; latency < 200 ms met.
+Environment: GPU Tesla T4, ultralytics 8.4.211, torch 2.14.1+cu130. Total time 27.9 min.
