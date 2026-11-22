@@ -143,7 +143,7 @@ def main():
 
     weights = args.weights or next((w for w in DEFAULT_WEIGHTS if os.path.exists(w)), None)
     if not weights or not os.path.exists(weights):
-        raise SystemExit("No weights found. Put the final model in results/run3/ or results/run2/, or pass --weights path/to/model.pt")
+        raise SystemExit("No weights found. Put the final model in results/run5/, or pass --weights path/to/model.pt")
     torch.set_num_threads(max(1, os.cpu_count() or 1))
     port = free_port(args.port)
     if port != args.port:

@@ -10,8 +10,8 @@ Examples
   python demo.py photos/ --show                      # also open each heatmap in a window
   python demo.py photos/ --benchmark                 # CPU latency, proposal protocol
 
-The weights default to results/run2/final_model_s42.pt (or the EfficientNet-B0 file) written by
-notebooks/Group2_Coral_Run2.ipynb. The model card saved next to the weights
+The weights default to results/run5/final_model_s42.pt written by
+notebooks/Group2_Coral_Run5.ipynb. The model card saved next to the weights
 (<weights>.json) gives the architecture, class order and preprocessing; without it the type is
 detected from the file. The tool is a screening aid: a trained person makes the final call.
 """
@@ -48,17 +48,18 @@ def spec_note(im):
         return "outside specs: almost no detail (blank or solid image)"
     return ""
 DEFAULT_WEIGHTS = [
+    "results/run5/final_model_s42.pt",
+    "results/run5/final_model_s43.pt",
+    "results/run5/final_model_s44.pt",
     "results/run3/final_model_s42.pt",
-    "results/run3/final_model_s42_effnet_b0.pt",
     "results/run2/final_model_s42.pt",
-    "results/run2/final_model_s42_effnet_b0.pt",
 ]
 
 
 def default_threshold(weights):
     """Decision cutoff on P(bleached) for these weights.
 
-    Run 3 selected its cutoff on validation only and saved it as selected_threshold.csv next to its model.
+    Run 5 and Run 3 selected their cutoffs on validation only and save them as selected_threshold.csv next to their models.
     The cutoff belongs to the model it was selected for, so it is only used when that file sits in the same
     folder as the weights; any other model uses 0.5 (the plain highest-probability class)."""
     path = os.path.join(os.path.dirname(os.path.abspath(weights)), "selected_threshold.csv")
@@ -240,7 +241,7 @@ def benchmark(clf, files, n=100, warm=10):
 def main():
     ap = argparse.ArgumentParser(description="Classify reef photos as healthy or bleached, with Grad-CAM heatmaps.")
     ap.add_argument("target", help="an image file or a folder of images")
-    ap.add_argument("--weights", help="model weights (default: the Run 2 final model in results/run2/)")
+    ap.add_argument("--weights", help="model weights (default: Run 5 R14 seed 42 in results/run5/)")
     ap.add_argument("--out", default="demo_output", help="folder for the heatmap images (default: demo_output)")
     ap.add_argument("--csv", help="also write the predictions to this CSV file")
     ap.add_argument("--no-heatmap", action="store_true", help="skip Grad-CAM (faster)")
@@ -251,7 +252,7 @@ def main():
 
     weights = args.weights or next((w for w in DEFAULT_WEIGHTS if os.path.exists(w)), None)
     if not weights or not os.path.exists(weights):
-        sys.exit("No weights found. Unzip run2_results.zip into results/run2/ or pass --weights path/to/model.pt")
+        sys.exit("No weights found. Put final_model_s42.pt in results/run5/ or pass --weights path/to/model.pt")
     torch.set_num_threads(max(1, os.cpu_count() or 1))
     clf = load_model(weights)
     out_dir = os.path.abspath(args.out) + os.sep

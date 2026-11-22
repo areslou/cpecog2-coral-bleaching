@@ -1,0 +1,8 @@
+{
+  "arch": "yolov8-cls",
+  "classes": ["healthy", "bleached"],
+  "imgsz": 224,
+  "candidate": "R14_scale_translate",
+  "seed": 42,
+  "threshold": 0.285
+}
