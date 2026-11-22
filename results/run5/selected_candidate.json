@@ -1,9 +1,9 @@
 {
-  "name": "R12_run3_reference",
-  "threshold": 0.01,
+  "name": "R14_scale_translate",
+  "threshold": 0.285,
   "settings": {
-    "scale": 0.1,
+    "scale": 0.25,
     "erasing": 0.0,
-    "translate": 0.0
+    "translate": 0.1
   }
 }
