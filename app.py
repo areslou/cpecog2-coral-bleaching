@@ -106,6 +106,12 @@ def build(weights, threshold):
                             "photo folder on this computer and summarizes every site at once. You can also upload photos directly "
                             "(with or without the CSV). It reports the share of photos flagged as bleached per site (with a 95% "
                             "confidence interval), how many are uncertain, and the order in which an expert should review them.")
+                gr.Markdown("**Why this tab:** a survey returns hundreds of photos and there are few trained reef monitors. "
+                            "Checking photos one by one only speeds up visual inspection; this tab answers the monitoring "
+                            "questions instead: **which site needs attention first** (sites ranked by bleaching rate), "
+                            "**how sure we are** (the 95% interval is wide when a site has few photos), and **which photos an "
+                            "expert should confirm first** (the review-first list). Repeating a survey and comparing a site's "
+                            "rate over time shows whether bleaching is spreading or recovering.")
                 with gr.Row():
                     with gr.Column(scale=1):
                         files = gr.File(file_count="multiple", file_types=["image", ".csv"], label="Sites CSV, or survey photos (+ optional sites CSV)")
