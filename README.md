@@ -28,6 +28,8 @@ notebooks/Group2_Coral_Run2.ipynb   data fixes, baselines, tuning sweep, Efficie
                                      test and external evaluation, size and latency, Grad-CAM
 notebooks/Group2_Coral_Run3.ipynb   leakage-safe validation-threshold experiment; outputs are kept separate
 notebooks/Group2_Coral_Run4.ipynb   batch size, weight decay and model scale (validation only)
+notebooks/Group2_Coral_Run5.ipynb   scale/crop augmentation sweep and final Run 5 model
+notebooks/Group2_Coral_Demo.ipynb   Google Colab browser demo for the Run 5 model
 app.py                               GUI: drag in a photo -> class, P(bleached), Grad-CAM heatmap (runs locally)
 get_demo_photos.py                   copy the held-out test photos (never trained on) into demo_photos/ for the demo
 survey.py                            survey summary: folder of photos -> share flagged bleached per site (95% CI), review-first list
@@ -38,6 +40,7 @@ results/run1/                        Run 1 metrics, confusion matrix, training c
 results/run2/                        Run 2 outputs (unzip run2_results.zip here)
 results/run3/                        Run 3 threshold-tuning outputs and final model
 results/run4/                        Run 4 outputs (unzip run4_results.zip here)
+results/run5/                        Run 5 augmentation sweep, selected threshold, test/external results and final models
 requirements.txt                     library versions (exact ultralytics version)
 ```
 
@@ -70,7 +73,16 @@ Pass `--threshold 0.xxx` to `eval_external.py` after selecting the cutoff. The t
 
 ### Scale and crop augmentation (Run 5)
 
-`notebooks/Group2_Coral_Run5.ipynb` compares scale/crop-oriented augmentation from the Run 3 final configuration (YOLOv8s-cls, dropout 0.3). It tunes candidates only on seed-42 validation data and requires at least 0.90 validation bleached recall before selecting a threshold. The held-out test set and external BU/BHD set are evaluated once, after the candidate and cutoff are fixed.
+`notebooks/Group2_Coral_Run5.ipynb` continues from the Run 3 final configuration (YOLOv8s-cls, dropout 0.3) and compares scale/crop-oriented augmentation candidates:
+
+| Candidate | Scale | Random erase | Translation |
+| :-- | --: | --: | --: |
+| R12, Run 3 reference | 0.10 | 0.00 | 0.00 |
+| R13 | 0.25 | 0.20 | 0.00 |
+| R14 | 0.25 | 0.00 | 0.10 |
+| R15 | 0.25 | 0.20 | 0.10 |
+
+The candidates are tuned only on seed-42 validation data. A candidate and its threshold must achieve at least 0.90 validation bleached recall. The threshold for the selected candidate is fixed before the held-out test and external BU/BHD sets are evaluated.
 
 ### Google Colab demo
 
@@ -203,8 +215,60 @@ The external performance shown here comes from the validation-selected 0.1774575
 
 Run 3 outputs are stored in [`results/run3/`](results/run3/), including the threshold tables, seed metrics, confusion matrices, Grad-CAM image, predictions, and final model.
 
+### Run 5 (Nov. 22, 2026): scale and translation augmentation
+
+Run 5 retrained YOLOv8s-cls with dropout 0.3 and the fixed 629/132/131 split. R14 (scale 0.25 and translation 0.10) had the strongest seed-42 validation result:
+
+| Item | Result |
+| :-- | :-- |
+| Selected candidate | R14, scale 0.25 + translate 0.10 |
+| Validation macro F1 | 0.8727 |
+| Validation bleached recall | 0.9167 |
+| Validation-selected threshold | 0.285 |
+| Final seeds | 42, 43, 44 |
+| Model size | 9.78 MB per seed |
+
+Held-out test set, mean across seeds 42, 43 and 44:
+
+| Metric | Result |
+| :-- | :-- |
+| Macro F1 | 0.8265 |
+| Bleached recall | 0.9352 |
+| Accuracy | 0.8309 |
+| ROC AUC | 0.9057 |
+
+By seed:
+
+| Seed | Macro F1 | Bleached recall | Accuracy | ROC AUC |
+| :-- | --: | --: | --: | --: |
+| 42 | 0.8188 | 0.9306 | 0.8235 | 0.9069 |
+| 43 | 0.8125 | 0.9028 | 0.8162 | 0.9052 |
+| 44 | 0.8482 | 0.9722 | 0.8529 | 0.9049 |
+
+Seed-42 confusion matrix: rows are true healthy/bleached and columns are predicted healthy/bleached:
+
+```text
+[[45, 19],
+ [ 5, 67]]
+```
+
+External BU + BHD evaluation used 1,134 images, mean across seeds:
+
+| External set | Macro F1 | Bleached recall | Accuracy |
+| :-- | --: | --: | --: |
+| BU + BHD | 0.7793 | 0.8909 | 0.7795 |
+| BU | 0.8226 | 0.8743 | 0.8235 |
+| BHD | 0.7672 | 0.8965 | 0.7679 |
+
+**Run 3 vs. Run 5:** Run 5 R14 improves held-out macro F1 from 0.819 to 0.827 and held-out bleached recall from 0.915 to 0.935. It also improves external mean macro F1 from 0.759 to 0.779 and external bleached recall from 0.855 to 0.891. It therefore remains the better screening model for the project, but it does not meet the proposed 0.90 held-out macro-F1 target.
+
+Run 5 outputs are stored in [`results/run5/`](results/run5/), including the candidate sweep, selected threshold, three final seed models, test predictions, external predictions and [`summary.json`](results/run5/summary.json). The Run 5 demo model is `results/run5/final_model_s42.pt`; the app and demo use it with threshold 0.285.
+
 ## Next steps
 
 - Measure CPU latency on a team laptop with `python demo.py <test images> --benchmark`.
+- Measure CPU latency for each Run 5 seed model.
+- Add Run 5 Grad-CAM and error-analysis figures to the final report.
+- Keep the held-out test and external datasets separate from any further threshold or model changes.
 - Test the demo from a clean environment, and record the backup video.
 - Write the results, error analysis and Grad-CAM findings into the report and slides.
